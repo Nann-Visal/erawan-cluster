@@ -1,756 +1,1061 @@
-# Database Cluster Architecture
-> High Availability Multi-DB Platform — HAProxy + Keepalived + MySQL InnoDB Cluster
-> **Version 2.0 — InnoDB Cluster Edition | Replaces Orchestrator + failover.sh**
+# HA Cluster — Full Step-by-Step Implementation Guide
+## Ubuntu 24.04 | MySQL 8.0 | PostgreSQL 16
 
----
+**Node Layout**
 
-## What Changed from v1
-
-| Item | Before (v1 — Orchestrator) | After (v2 — InnoDB Cluster) |
+| Node | IP | Role |
 |---|---|---|
-| MySQL HA manager | Orchestrator (archived project) | InnoDB Cluster — Oracle-backed ✅ |
-| Failover mechanism | failover.sh + HAProxy socket API | Group Replication consensus — automatic ✅ |
-| Failover time (MySQL) | ~15s | ~5-10s ✅ |
-| Node requirement | 2 nodes minimum | 3 nodes minimum (quorum) |
-| Rejoin failed node | Manual: 5 SQL commands | `cluster.rejoinInstance()` — 1 command ✅ |
-| Promote node | Orchestrator CLI + script | `cluster.setPrimaryInstance()` ✅ |
-| Split-brain protection | Limited | Built-in quorum voting ✅ |
-| Conflict detection | None | Built-in ✅ |
-| Data consistency | Async GTID replication | Virtually synchronous ✅ |
-| Script maintenance | failover.sh + clusters.json | None required ✅ |
-| Long-term support | GitHub archived — no new features | Oracle maintained ✅ |
+| Node 1 | 192.168.1.10 | HAProxy |
+| Node 2 | 192.168.1.11 | Replication Manager + etcd |
+| Node 3 | 192.168.1.12 | DB Primary (MySQL + PostgreSQL) |
+| Node 4 | 192.168.1.13 | DB Standby (MySQL + PostgreSQL) |
+
+**Implementation Order**
+1. Node 3 & 4 — MySQL 8.0 Primary/Standby
+2. Node 3 & 4 — PostgreSQL 16 + Patroni
+3. Node 2 — Replication Manager + etcd
+4. Node 1 — HAProxy
 
 ---
 
-## Architecture Overview
-
-```mermaid
-flowchart TD
-    subgraph APPS["🖥️ APPLICATIONS"]
-        A["App A"]
-        B["App B"]
-        C["App C"]
-        D["App D"]
-    end
-
-    subgraph VIP["⚡ VIRTUAL IP — Keepalived"]
-        V["VIP: 10.10.78.100  —  All Ports\n Always alive — even if HAProxy VM 1 dies"]
-    end
-
-    subgraph HAPROXY["🔀 HAProxy Layer — Active / Passive + No SPOF"]
-        subgraph VM1["HAProxy VM 1 — 10.10.78.125  ACTIVE"]
-            H1["HAProxy — Traffic Router\nMySQL A :25010  |  MySQL B :25011\nPostgreSQL A :25013  |  PostgreSQL B :25014\nRedis A :25015  |  Redis B :25016\nMongoDB A :25017  |  MongoDB B :25018\nStats :8404"]
-        end
-        subgraph VM2["HAProxy VM 2 — 10.10.78.126  PASSIVE"]
-            H2["HAProxy — Traffic Router\nMySQL A :25010  |  MySQL B :25011\nPostgreSQL A :25013  |  PostgreSQL B :25014\nRedis A :25015  |  Redis B :25016\nMongoDB A :25017  |  MongoDB B :25018\nStats :8404"]
-        end
-    end
-
-    subgraph MYSQL["🐬 MySQL Layer — HA: InnoDB Cluster  |  Failover: ~5-10s  |  No Scripts"]
-        subgraph MCA["Cluster A — Port 25010"]
-            MPA["PRIMARY\n10.10.108.152:3306"]
-            MRA["REPLICA\n10.10.100.183:3306"]
-            MRA2["REPLICA\n10.10.100.187:3306 🆕"]
-        end
-        subgraph MCB["Cluster B — Port 25011"]
-            MPB["PRIMARY\n10.10.108.153:3306"]
-            MRB["REPLICA\n10.10.100.184:3306"]
-            MRB2["REPLICA\n10.10.100.188:3306 🆕"]
-        end
-    end
-
-    subgraph PGSQL["🐘 PostgreSQL Layer — HA: Patroni  |  Failover: ~10s"]
-        subgraph PCA["Cluster A — Port 25013"]
-            PPA["PRIMARY\n10.10.108.160:5432"]
-            PRA["REPLICA\n10.10.100.190:5432"]
-        end
-        subgraph PCB["Cluster B — Port 25014"]
-            PPB["PRIMARY\n10.10.108.161:5432"]
-            PRB["REPLICA\n10.10.100.191:5432"]
-        end
-    end
-
-    subgraph REDIS["🔴 Redis Layer — HA: Sentinel  |  Failover: ~10s"]
-        subgraph RCA["Cluster A — Port 25015"]
-            RPA["PRIMARY\n10.10.108.170:6379"]
-            RRA["REPLICA\n10.10.100.195:6379"]
-        end
-        subgraph RCB["Cluster B — Port 25016"]
-            RPB["PRIMARY\n10.10.108.171:6379"]
-            RRB["REPLICA\n10.10.100.196:6379"]
-        end
-    end
-
-    subgraph MONGO["🍃 MongoDB Layer — HA: ReplicaSet  |  Failover: ~10s"]
-        subgraph GCA["Cluster A — Port 25017"]
-            GPA["PRIMARY\n10.10.108.180:27017"]
-            GRA["REPLICA\n10.10.100.200:27017"]
-        end
-        subgraph GCB["Cluster B — Port 25018"]
-            GPB["PRIMARY\n10.10.108.181:27017"]
-            GRB["REPLICA\n10.10.100.201:27017"]
-        end
-    end
-
-    subgraph MON["📊 Monitoring VM — 10.10.78.140"]
-        PR["Prometheus :9090\nmysql_exporter :9104  |  postgres_exporter :9187\nredis_exporter :9121  |  mongodb_exporter :9216  |  haproxy_exporter :9101"]
-        GR["Grafana :3000\nAll DB Dashboards  |  HAProxy Dashboard  |  InnoDB Cluster Alerts"]
-        AL["Alertmanager :9093\nSlack  |  PagerDuty  |  Email"]
-    end
-
-    %% App to VIP
-    A & B & C & D --> V
-
-    %% VIP to HAProxy
-    V -->|"Keepalived routes to ACTIVE"| VM1
-    V -.->|"Failover in ~2s if VM1 dies"| VM2
-
-    %% Keepalived heartbeat
-    VM1 <-->|"Keepalived heartbeat"| VM2
-
-    %% HAProxy to DB layers
-    H1 --> MYSQL & PGSQL & REDIS & MONGO
-
-    %% MySQL Group Replication
-    MPA <-->|"Group Replication"| MRA
-    MPA <-->|"Group Replication"| MRA2
-    MRA <-->|"Group Replication"| MRA2
-    MPB <-->|"Group Replication"| MRB
-    MPB <-->|"Group Replication"| MRB2
-    MRB <-->|"Group Replication"| MRB2
-
-    %% Other replication
-    PPA -->|"streaming repl"| PRA
-    PPB -->|"streaming repl"| PRB
-    RPA -->|"repl"| RRA
-    RPB -->|"repl"| RRB
-    GPA -->|"repl"| GRA
-    GPB -->|"repl"| GRB
-
-    %% Metrics
-    MYSQL & PGSQL & REDIS & MONGO & HAPROXY -->|"metrics scrape"| PR
-    PR --> GR --> AL
-```
+# STACK 1 — MySQL 8.0 Primary/Standby
+## Nodes: 3 & 4
 
 ---
 
-## Failover Flow Per DB Type
-
-```mermaid
-flowchart LR
-    subgraph MYSQL_FLOW["🐬 MySQL Failover — InnoDB Cluster"]
-        M1["Primary DOWN\ndetected ~2s"] --> M2["Group Replication\nquorum vote 2/3"]
-        M2 --> M3["Replica auto-promoted\nno scripts needed"]
-        M3 --> M4["HAProxy mysql-check\ndetects new primary ✅"]
-    end
-
-    subgraph PGSQL_FLOW["🐘 PostgreSQL Failover"]
-        P1["Primary DOWN\ndetected 9-15s"] --> P2["Patroni\npromotes replica"]
-        P2 --> P3["REST API /primary\nreturns 503"]
-        P3 --> P4["HAProxy health check\nauto-reroutes ✅"]
-    end
-
-    subgraph REDIS_FLOW["🔴 Redis Failover"]
-        R1["Primary DOWN"] --> R2["Sentinel\nvotes quorum"]
-        R2 --> R3["Replica promoted\nrole:master changes"]
-        R3 --> R4["HAProxy tcp-check\ndetects new master ✅"]
-    end
-
-    subgraph MONGO_FLOW["🍃 MongoDB Failover"]
-        G1["Primary DOWN"] --> G2["ReplicaSet\nelection ~10s"]
-        G2 --> G3["New primary\nelected auto"]
-        G3 --> G4["HAProxy HTTP check\n:8009/primary ✅"]
-    end
-```
-
----
-
-## HAProxy Keepalived Failover
-
-```mermaid
-flowchart TD
-    A["All Apps connect to\nVIP 10.10.78.100"] --> B{Keepalived\nWho is ACTIVE?}
-    B -->|"Normal"| C["HAProxy VM 1\n10.10.78.125\nACTIVE ✅"]
-    B -->|"VM 1 dies\n~2s failover"| D["HAProxy VM 2\n10.10.78.126\nPROMOTED ✅"]
-    C -->|"heartbeat lost"| D
-    D -->|"VM 1 recovers\nrejoins as PASSIVE"| C
-```
-
----
-
-## MySQL InnoDB Cluster Failover Detail
-
-```mermaid
-flowchart TD
-    F1["Primary DOWN"] --> F2["HAProxy mysql-check fails\ninter 1s fall 2 → ~2s"]
-    F2 --> F3["Group Replication detects\nmember loss"]
-    F3 --> F4["Quorum vote\n2 of 3 nodes agree"]
-    F4 --> F5["New primary elected\nauto — read_only=OFF"]
-    F5 --> F6["HAProxy mysql-check\npasses on new primary"]
-    F6 --> F7["Traffic flows to\nnew primary ✅ ~5-10s total"]
-    F7 --> F8["Old primary recovers"]
-    F8 --> F9["cluster.rejoinInstance()\n1 command — auto GTID sync ✅"]
-```
-
----
-
-## Cluster Reference
-
-### MySQL Clusters — InnoDB Cluster (3 Nodes)
-
-| Cluster | Role | IP | Port | HA Manager |
-|---|---|---|---|---|
-| Cluster A | PRIMARY | 10.10.108.152 | 3306 | InnoDB Cluster (Group Replication) |
-| Cluster A | REPLICA | 10.10.100.183 | 3306 | InnoDB Cluster (Group Replication) |
-| Cluster A | REPLICA 🆕 | 10.10.100.187 | 3306 | InnoDB Cluster (Group Replication) |
-| Cluster B | PRIMARY | 10.10.108.153 | 3306 | InnoDB Cluster (Group Replication) |
-| Cluster B | REPLICA | 10.10.100.184 | 3306 | InnoDB Cluster (Group Replication) |
-| Cluster B | REPLICA 🆕 | 10.10.100.188 | 3306 | InnoDB Cluster (Group Replication) |
-
-### PostgreSQL Clusters
-
-| Cluster | Role | IP | Port | HA Manager |
-|---|---|---|---|---|
-| Cluster A | Primary | 10.10.108.160 | 5432 | Patroni |
-| Cluster A | Replica | 10.10.100.190 | 5432 | Patroni |
-| Cluster B | Primary | 10.10.108.161 | 5432 | Patroni |
-| Cluster B | Replica | 10.10.100.191 | 5432 | Patroni |
-
-### Redis Clusters
-
-| Cluster | Role | IP | Port | HA Manager |
-|---|---|---|---|---|
-| Cluster A | Primary | 10.10.108.170 | 6379 | Sentinel |
-| Cluster A | Replica | 10.10.100.195 | 6379 | Sentinel |
-| Cluster B | Primary | 10.10.108.171 | 6379 | Sentinel |
-| Cluster B | Replica | 10.10.100.196 | 6379 | Sentinel |
-
-### MongoDB Clusters
-
-| Cluster | Role | IP | Port | HA Manager |
-|---|---|---|---|---|
-| Cluster A | Primary | 10.10.108.180 | 27017 | ReplicaSet |
-| Cluster A | Replica | 10.10.100.200 | 27017 | ReplicaSet |
-| Cluster B | Primary | 10.10.108.181 | 27017 | ReplicaSet |
-| Cluster B | Replica | 10.10.100.201 | 27017 | ReplicaSet |
-
----
-
-## Port Map
-
-| DB Type | Cluster | Port | HA Manager | Health Check |
-|---|---|---|---|---|
-| MySQL | Cluster A | 25010 | InnoDB Cluster | `mysql-check user haproxy_check post-41` |
-| MySQL | Cluster B | 25011 | InnoDB Cluster | `mysql-check user haproxy_check post-41` |
-| PostgreSQL | Cluster A | 25013 | Patroni | `HTTP :8008/primary → 200 OK` |
-| PostgreSQL | Cluster B | 25014 | Patroni | `HTTP :8008/primary → 200 OK` |
-| Redis | Cluster A | 25015 | Sentinel | `tcp-check role:master` |
-| Redis | Cluster B | 25016 | Sentinel | `tcp-check role:master` |
-| MongoDB | Cluster A | 25017 | ReplicaSet | `HTTP :8009/primary → 200 OK` |
-| MongoDB | Cluster B | 25018 | ReplicaSet | `HTTP :8009/primary → 200 OK` |
-| HAProxy | Stats | 8404 | — | Web dashboard |
-| MySQL Shell | Admin | — | mysqlsh CLI | `cluster.status()` |
-| Patroni | REST API | 8008 | — | `GET /primary` |
-| Mongo Health | Sidecar | 8009 | — | `GET /primary` |
-
----
-
-## HA Manager Responsibilities
-
-| DB Type | HA Manager | Failover Trigger | Failover Time |
-|---|---|---|---|
-| MySQL | InnoDB Cluster (Group Repl.) | Auto — Group Replication consensus | ~5-10s |
-| MariaDB | InnoDB Cluster (Group Repl.) | Auto — Group Replication consensus | ~5-10s |
-| PostgreSQL | Patroni | Auto via REST API → HAProxy HTTP check | ~10s |
-| Redis | Sentinel | Auto promotes master → HAProxy tcp-check | ~10s |
-| MongoDB | ReplicaSet | Auto elects primary → HAProxy HTTP check | ~10s |
-| HAProxy | Keepalived | VIP moves to passive VM | ~2s |
-
----
-
-## HAProxy Configuration
-
-```haproxy
-#---------------------------------------------------------------------
-# Global
-#---------------------------------------------------------------------
-global
-    log         /dev/log local0
-    log         /dev/log local1 notice
-    chroot      /var/lib/haproxy
-    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
-    stats timeout 30s
-    user        haproxy
-    group       haproxy
-    daemon
-    maxconn     50000
-    nbthread    4
-
-#---------------------------------------------------------------------
-# Defaults
-#---------------------------------------------------------------------
-defaults
-    log             global
-    mode            tcp
-    option          tcplog
-    option          dontlognull
-    option          redispatch
-    retries         3
-    timeout connect     5s
-    timeout client      60s
-    timeout server      60s
-    timeout check       2s
-    timeout tunnel      3600s
-    maxconn         20000
-
-#---------------------------------------------------------------------
-# Stats Dashboard
-# Access: http://10.10.78.125:8404/stats
-#---------------------------------------------------------------------
-frontend stats
-    bind                *:8404
-    mode                http
-    stats enable
-    stats uri           /stats
-    stats realm         HAProxy\ Statistics
-    stats auth          admin:YourStatsPassword!
-    stats refresh       10s
-    stats show-legends
-    stats show-node
-    acl trusted_ip      src 10.10.0.0/16
-    http-request deny   if !trusted_ip
-
-#=====================================================================
-# MYSQL CLUSTERS — InnoDB Cluster (3 nodes, no backup flag)
-# mysql-check routes to PRIMARY only — replicas fail check (read_only=ON)
-#=====================================================================
-
-#---------------------------------------------------------------------
-# MySQL Cluster A — port 25010
-#---------------------------------------------------------------------
-frontend mysql_cluster_a
-    bind                *:25010
-    mode                tcp
-    option              tcplog
-    default_backend     mysql_back_a
-
-backend mysql_back_a
-    mode                tcp
-    option              tcp-check
-    option              mysql-check user haproxy_check post-41
-    balance             first
-    default-server      inter 1s rise 1 fall 2 fastinter 500ms on-marked-down shutdown-sessions
-    server  mysql-a1    10.10.108.152:3306  check weight 100
-    server  mysql-a2    10.10.100.183:3306  check weight 50
-    server  mysql-a3    10.10.100.187:3306  check weight 50
-
-#---------------------------------------------------------------------
-# MySQL Cluster B — port 25011
-#---------------------------------------------------------------------
-frontend mysql_cluster_b
-    bind                *:25011
-    mode                tcp
-    option              tcplog
-    default_backend     mysql_back_b
-
-backend mysql_back_b
-    mode                tcp
-    option              tcp-check
-    option              mysql-check user haproxy_check post-41
-    balance             first
-    default-server      inter 1s rise 1 fall 2 fastinter 500ms on-marked-down shutdown-sessions
-    server  mysql-b1    10.10.108.153:3306  check weight 100
-    server  mysql-b2    10.10.100.184:3306  check weight 50
-    server  mysql-b3    10.10.100.188:3306  check weight 50
-
-#=====================================================================
-# POSTGRESQL CLUSTERS
-#=====================================================================
-
-#---------------------------------------------------------------------
-# PostgreSQL Cluster A — port 25013
-#---------------------------------------------------------------------
-frontend pgsql_cluster_a
-    bind                *:25013
-    mode                tcp
-    option              tcplog
-    default_backend     pgsql_back_a
-
-backend pgsql_back_a
-    mode                tcp
-    option              httpchk GET /primary
-    http-check expect   status 200
-    balance             first
-    default-server      inter 3s rise 2 fall 3 on-marked-down shutdown-sessions
-    server  pgsql-primary-a  10.10.108.160:5432  check port 8008 weight 100
-    server  pgsql-replica-a  10.10.100.190:5432  check port 8008 weight 1 backup
-
-#---------------------------------------------------------------------
-# PostgreSQL Cluster B — port 25014
-#---------------------------------------------------------------------
-frontend pgsql_cluster_b
-    bind                *:25014
-    mode                tcp
-    option              tcplog
-    default_backend     pgsql_back_b
-
-backend pgsql_back_b
-    mode                tcp
-    option              httpchk GET /primary
-    http-check expect   status 200
-    balance             first
-    default-server      inter 3s rise 2 fall 3 on-marked-down shutdown-sessions
-    server  pgsql-primary-b  10.10.108.161:5432  check port 8008 weight 100
-    server  pgsql-replica-b  10.10.100.191:5432  check port 8008 weight 1 backup
-
-#=====================================================================
-# REDIS CLUSTERS
-#=====================================================================
-
-#---------------------------------------------------------------------
-# Redis Cluster A — port 25015
-#---------------------------------------------------------------------
-frontend redis_cluster_a
-    bind                *:25015
-    mode                tcp
-    option              tcplog
-    default_backend     redis_back_a
-
-backend redis_back_a
-    mode                tcp
-    option              tcp-check
-    tcp-check           send PING\r\n
-    tcp-check           expect string +PONG
-    tcp-check           send info\ replication\r\n
-    tcp-check           expect string role:master
-    tcp-check           send QUIT\r\n
-    tcp-check           expect string +OK
-    balance             first
-    default-server      inter 3s rise 2 fall 3 on-marked-down shutdown-sessions
-    server  redis-primary-a  10.10.108.170:6379  check weight 100
-    server  redis-replica-a  10.10.100.195:6379  check weight 1 backup
-
-#---------------------------------------------------------------------
-# Redis Cluster B — port 25016
-#---------------------------------------------------------------------
-frontend redis_cluster_b
-    bind                *:25016
-    mode                tcp
-    option              tcplog
-    default_backend     redis_back_b
-
-backend redis_back_b
-    mode                tcp
-    option              tcp-check
-    tcp-check           send PING\r\n
-    tcp-check           expect string +PONG
-    tcp-check           send info\ replication\r\n
-    tcp-check           expect string role:master
-    tcp-check           send QUIT\r\n
-    tcp-check           expect string +OK
-    balance             first
-    default-server      inter 3s rise 2 fall 3 on-marked-down shutdown-sessions
-    server  redis-primary-b  10.10.108.171:6379  check weight 100
-    server  redis-replica-b  10.10.100.196:6379  check weight 1 backup
-
-#=====================================================================
-# MONGODB CLUSTERS
-#=====================================================================
-
-#---------------------------------------------------------------------
-# MongoDB Cluster A — port 25017
-#---------------------------------------------------------------------
-frontend mongo_cluster_a
-    bind                *:25017
-    mode                tcp
-    option              tcplog
-    default_backend     mongo_back_a
-
-backend mongo_back_a
-    mode                tcp
-    option              httpchk GET /primary
-    http-check expect   status 200
-    balance             first
-    default-server      inter 3s rise 2 fall 3 on-marked-down shutdown-sessions
-    server  mongo-primary-a  10.10.108.180:27017  check port 8009 weight 100
-    server  mongo-replica-a  10.10.100.200:27017  check port 8009 weight 1 backup
-
-#---------------------------------------------------------------------
-# MongoDB Cluster B — port 25018
-#---------------------------------------------------------------------
-frontend mongo_cluster_b
-    bind                *:25018
-    mode                tcp
-    option              tcplog
-    default_backend     mongo_back_b
-
-backend mongo_back_b
-    mode                tcp
-    option              httpchk GET /primary
-    http-check expect   status 200
-    balance             first
-    default-server      inter 3s rise 2 fall 3 on-marked-down shutdown-sessions
-    server  mongo-primary-b  10.10.108.181:27017  check port 8009 weight 100
-    server  mongo-replica-b  10.10.100.201:27017  check port 8009 weight 1 backup
-```
-
----
-
-## Keepalived Configuration
-
-### HAProxy VM 1 — MASTER `/etc/keepalived/keepalived.conf`
+## Step 1.1 — Install MySQL 8.0 on Node 3 AND Node 4
 
 ```bash
-vrrp_script chk_haproxy {
-    script "killall -0 haproxy"
-    interval 2
-    weight   2
-}
+# Run on BOTH Node 3 and Node 4
+apt update && apt upgrade -y
 
-vrrp_instance VI_1 {
-    state               MASTER
-    interface           eth0
-    virtual_router_id   51
-    priority            101
-    advert_int          1
+# Install MySQL 8.0
+apt install -y mysql-server mysql-client
 
-    authentication {
-        auth_type   PASS
-        auth_pass   YourKeepalivedPass!
-    }
+# Verify version
+mysql --version
+# Expected: mysql  Ver 8.0.x
 
-    virtual_ipaddress {
-        10.10.78.100/24
-    }
-
-    track_script {
-        chk_haproxy
-    }
-}
-```
-
-### HAProxy VM 2 — BACKUP (same config, change these 2 lines)
-
-```bash
-    state               BACKUP
-    priority            100
+# Enable and start
+systemctl enable mysql
+systemctl start mysql
+systemctl status mysql
 ```
 
 ---
 
-## MySQL InnoDB Cluster Setup
-
-> Replaces: Orchestrator Raft Configuration
-> Run once per MySQL cluster. Example shown for Cluster A.
-
-### Phase 1 — Install MySQL Server + MySQL Shell (All 3 Nodes)
+## Step 1.2 — Configure MySQL on Node 3 (Primary)
 
 ```bash
-sudo apt update && sudo apt install -y mysql-server mysql-shell
-sudo systemctl enable mysql && sudo systemctl start mysql
+# Edit MySQL config on Node 3
+nano /etc/mysql/mysql.conf.d/mysqld.cnf
 ```
 
-### Phase 2 — Configure Each Node via MySQL Shell
+Add/update these lines:
+
+```ini
+[mysqld]
+# Basic settings
+bind-address            = 0.0.0.0
+server-id               = 1                  # MUST be unique per node
+port                    = 3306
+
+# Binary logging (required for replication)
+log_bin                 = /var/log/mysql/mysql-bin.log
+binlog_expire_logs_seconds = 604800          # 7 days retention
+max_binlog_size         = 100M
+binlog_format           = ROW               # Required for MySQL 8.0
+
+# GTID (required for replication-manager autorejoin)
+gtid_mode               = ON
+enforce_gtid_consistency = ON
+
+# Replication settings
+log_replica_updates     = ON
+replica_preserve_commit_order = ON
+
+# Performance
+innodb_buffer_pool_size = 1G               # adjust to 70% of RAM
+innodb_flush_log_at_trx_commit = 1
+sync_binlog             = 1
+```
 
 ```bash
-# Run on EACH of the 3 nodes individually
-mysqlsh
-dba.configureLocalInstance('root@localhost:3306')
-# Select option 2 — create clusteradmin account
-# Set password: ClusterAdmin!2024
-# Allow config changes and restart
+# Restart MySQL
+systemctl restart mysql
 ```
 
-### Phase 3 — Create Cluster and Add Nodes (on mysql-a1 only)
+---
+
+## Step 1.3 — Configure MySQL on Node 4 (Standby)
 
 ```bash
-mysqlsh --user clusteradmin --host 10.10.108.152
-
-var cluster = dba.createCluster('mysql_cluster_a')
-
-cluster.addInstance('clusteradmin@10.10.100.183:3306')
-# Choose: Clone — syncs data from primary automatically
-
-cluster.addInstance('clusteradmin@10.10.100.187:3306')
-# Choose: Clone
-
-# Verify — all 3 nodes must show ONLINE
-cluster.status()
+# Edit MySQL config on Node 4
+nano /etc/mysql/mysql.conf.d/mysqld.cnf
 ```
 
-### Phase 4 — Create HAProxy Health Check User (Primary Node)
+```ini
+[mysqld]
+# Basic settings
+bind-address            = 0.0.0.0
+server-id               = 2                  # MUST be different from Node 3
+port                    = 3306
+
+# Binary logging
+log_bin                 = /var/log/mysql/mysql-bin.log
+binlog_expire_logs_seconds = 604800
+max_binlog_size         = 100M
+binlog_format           = ROW
+
+# GTID
+gtid_mode               = ON
+enforce_gtid_consistency = ON
+
+# Replication
+log_replica_updates     = ON
+replica_preserve_commit_order = ON
+read_only               = ON                 # Standby is read-only
+super_read_only         = ON
+
+# Performance
+innodb_buffer_pool_size = 1G
+innodb_flush_log_at_trx_commit = 1
+sync_binlog             = 1
+```
+
+```bash
+# Restart MySQL
+systemctl restart mysql
+```
+
+---
+
+## Step 1.4 — Secure MySQL on Node 3 (Primary)
+
+```bash
+# Run secure installation
+mysql_secure_installation
+# Set root password, remove anonymous users, disallow remote root, remove test db
+
+# Login as root
+mysql -u root -p
+```
 
 ```sql
-sudo mysql
-CREATE USER 'haproxy_check'@'%' IDENTIFIED WITH mysql_native_password BY '';
-GRANT USAGE ON *.* TO 'haproxy_check'@'%';
+-- Create replication user
+CREATE USER 'replicator'@'%' IDENTIFIED WITH mysql_native_password BY 'ReplPass123!';
+GRANT REPLICATION SLAVE ON *.* TO 'replicator'@'%';
+
+-- Create replication-manager monitoring user
+CREATE USER 'repmgr'@'%' IDENTIFIED WITH mysql_native_password BY 'RepmgrPass123!';
+GRANT SUPER, REPLICATION CLIENT, REPLICATION SLAVE,
+      RELOAD, PROCESS, SHOW DATABASES,
+      EVENT, TRIGGER ON *.* TO 'repmgr'@'%';
+
+-- Create app user
+CREATE USER 'appuser'@'%' IDENTIFIED WITH mysql_native_password BY 'AppPass123!';
+GRANT SELECT, INSERT, UPDATE, DELETE ON *.* TO 'appuser'@'%';
+
 FLUSH PRIVILEGES;
+
+-- Verify GTID is ON
+SHOW VARIABLES LIKE 'gtid_mode';
+-- Expected: gtid_mode | ON
 ```
-
-### Daily Operations
-
-| Task | Command |
-|---|---|
-| Check cluster status | `cluster.status()` |
-| Promote specific node | `cluster.setPrimaryInstance('10.10.100.183:3306')` |
-| Rejoin failed node | `cluster.rejoinInstance('10.10.108.152:3306')` |
-| Add new node | `cluster.addInstance('clusteradmin@<ip>:3306')` |
-| Remove node | `cluster.removeInstance('<ip>:3306')` |
-| Full outage recovery | `dba.rebootClusterFromCompleteOutage('mysql_cluster_a')` |
-| Connect MySQL Shell | `mysqlsh --user clusteradmin --host 10.10.108.152` |
-| Get cluster object | `var cluster = dba.getCluster('mysql_cluster_a')` |
 
 ---
 
-## MongoDB Health Sidecar
-
-> Required on each MongoDB node — exposes HTTP `/primary` for HAProxy health check
+## Step 1.5 — Set Up Replication from Node 4 to Node 3
 
 ```bash
-# /usr/local/bin/mongo-health.sh
+# On Node 3 — get binary log position
+mysql -u root -p
+```
+
+```sql
+-- On Node 3 (Primary)
+SHOW MASTER STATUS\G
+-- Note: File and Position values
+-- With GTID enabled, position is less important but verify gtid_executed
+SHOW VARIABLES LIKE 'gtid_executed';
+```
+
+```bash
+# On Node 4 — connect and configure replication
+mysql -u root -p
+```
+
+```sql
+-- On Node 4 (Standby)
+-- Stop replica if running
+STOP REPLICA;
+RESET REPLICA ALL;
+
+-- Point to primary
+CHANGE REPLICATION SOURCE TO
+  SOURCE_HOST='192.168.1.12',
+  SOURCE_PORT=3306,
+  SOURCE_USER='replicator',
+  SOURCE_PASSWORD='ReplPass123!',
+  SOURCE_AUTO_POSITION=1;         -- Uses GTID auto positioning
+
+-- Start replication
+START REPLICA;
+
+-- Verify replication is running
+SHOW REPLICA STATUS\G
+-- Check:
+--   Replica_IO_Running: Yes
+--   Replica_SQL_Running: Yes
+--   Seconds_Behind_Source: 0
+```
+
+---
+
+## Step 1.6 — Verify MySQL Replication
+
+```bash
+# On Node 3 — create test database
+mysql -u root -p -e "CREATE DATABASE repl_test;"
+
+# On Node 4 — verify it replicated
+mysql -u root -p -e "SHOW DATABASES;" | grep repl_test
+# Expected: repl_test
+
+# Clean up test
+mysql -u root -p -e "DROP DATABASE repl_test;"
+```
+
+### ✅ MySQL Stack Complete — Checklist
+
+```
+□ MySQL 8.0 installed on Node 3 and Node 4
+□ server-id = 1 on Node 3, server-id = 2 on Node 4
+□ GTID enabled on both nodes
+□ replicator user created
+□ repmgr user created
+□ appuser created
+□ Replication running (IO: Yes, SQL: Yes)
+□ Test database replicated successfully
+```
+
+---
+---
+
+# STACK 2 — PostgreSQL 16 + Patroni
+## Nodes: 3 & 4 (and etcd on Node 2)
+
+---
+
+## Step 2.1 — Install PostgreSQL 16 on Node 3 AND Node 4
+
+```bash
+# Run on BOTH Node 3 and Node 4
+
+# Add PostgreSQL official repo
+apt install -y curl ca-certificates
+install -d /usr/share/postgresql-common/pgdg
+curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail \
+  https://www.postgresql.org/media/keys/ACCC4CF8.asc
+
+sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+  https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+  > /etc/apt/sources.list.d/pgdg.list'
+
+apt update
+apt install -y postgresql-16 postgresql-client-16
+
+# IMPORTANT: Stop and disable — Patroni will manage PostgreSQL
+systemctl stop postgresql
+systemctl disable postgresql
+
+# Verify install
+psql --version
+# Expected: psql (PostgreSQL) 16.x
+```
+
+---
+
+## Step 2.2 — Install Patroni on Node 3 AND Node 4
+
+```bash
+# Run on BOTH Node 3 and Node 4
+apt install -y python3-pip python3-dev libpq-dev
+
+# Install Patroni with etcd support
+pip3 install patroni[etcd] psycopg2-binary
+
+# Verify
+patroni --version
+# Expected: patroni 3.x.x
+```
+
+---
+
+## Step 2.3 — Install etcd on Node 2
+
+```bash
+# Run on Node 2 ONLY
+apt install -y etcd
+
+# Configure etcd
+nano /etc/default/etcd
+```
+
+```ini
+ETCD_NAME="etcd-node2"
+ETCD_DATA_DIR="/var/lib/etcd"
+ETCD_LISTEN_PEER_URLS="http://192.168.1.11:2380"
+ETCD_LISTEN_CLIENT_URLS="http://192.168.1.11:2379,http://127.0.0.1:2379"
+ETCD_INITIAL_ADVERTISE_PEER_URLS="http://192.168.1.11:2380"
+ETCD_ADVERTISE_CLIENT_URLS="http://192.168.1.11:2379"
+ETCD_INITIAL_CLUSTER="etcd-node2=http://192.168.1.11:2380"
+ETCD_INITIAL_CLUSTER_STATE="new"
+ETCD_INITIAL_CLUSTER_TOKEN="pg-etcd-cluster"
+```
+
+```bash
+# Start etcd
+systemctl enable etcd
+systemctl start etcd
+
+# Verify etcd is running
+etcdctl endpoint health
+# Expected: 127.0.0.1:2379 is healthy
+```
+
+---
+
+## Step 2.4 — Configure Patroni on Node 3 (Primary)
+
+```bash
+# On Node 3
+mkdir -p /etc/patroni
+nano /etc/patroni/patroni.yml
+```
+
+```yaml
+scope: pg-cluster
+namespace: /db/
+name: pg-node3
+
+restapi:
+  listen: 192.168.1.12:8008
+  connect_address: 192.168.1.12:8008
+
+etcd:
+  hosts: 192.168.1.11:2379
+
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576    # 1MB max lag before failover
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+  postgresql:
+    use_pg_rewind: true
+    use_slots: true
+    parameters:
+      wal_level: replica
+      hot_standby: "on"
+      max_wal_senders: 5
+      max_replication_slots: 5
+      wal_log_hints: "on"              # Required for pg_rewind
+      archive_mode: "off"
+
+postgresql:
+  listen: 192.168.1.12:5432
+  connect_address: 192.168.1.12:5432
+  data_dir: /var/lib/postgresql/16/main
+  bin_dir: /usr/lib/postgresql/16/bin
+  pgpass: /tmp/pgpass0
+  authentication:
+    replication:
+      username: replicator
+      password: ReplPass123!
+    superuser:
+      username: postgres
+      password: SuperPass123!
+    rewind:
+      username: rewind_user
+      password: RewindPass123!
+  callbacks:
+    on_role_change: /etc/patroni/haproxy_sync.sh
+
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nosync: false
+```
+
+---
+
+## Step 2.5 — Configure Patroni on Node 4 (Standby)
+
+```bash
+# On Node 4
+mkdir -p /etc/patroni
+nano /etc/patroni/patroni.yml
+```
+
+```yaml
+scope: pg-cluster
+namespace: /db/
+name: pg-node4                          # different from Node 3
+
+restapi:
+  listen: 192.168.1.13:8008             # Node 4 IP
+  connect_address: 192.168.1.13:8008
+
+etcd:
+  hosts: 192.168.1.11:2379
+
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+  postgresql:
+    use_pg_rewind: true
+    use_slots: true
+    parameters:
+      wal_level: replica
+      hot_standby: "on"
+      max_wal_senders: 5
+      max_replication_slots: 5
+      wal_log_hints: "on"
+      archive_mode: "off"
+
+postgresql:
+  listen: 192.168.1.13:5432             # Node 4 IP
+  connect_address: 192.168.1.13:5432
+  data_dir: /var/lib/postgresql/16/main
+  bin_dir: /usr/lib/postgresql/16/bin
+  pgpass: /tmp/pgpass0
+  authentication:
+    replication:
+      username: replicator
+      password: ReplPass123!
+    superuser:
+      username: postgres
+      password: SuperPass123!
+    rewind:
+      username: rewind_user
+      password: RewindPass123!
+  callbacks:
+    on_role_change: /etc/patroni/haproxy_sync.sh
+
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nosync: false
+```
+
+---
+
+## Step 2.6 — Create HAProxy Sync Callback Script (Node 3 & 4)
+
+```bash
+# Run on BOTH Node 3 and Node 4
+nano /etc/patroni/haproxy_sync.sh
+```
+
+```bash
 #!/bin/bash
-IS_PRIMARY=$(mongosh --quiet --eval "db.isMaster().ismaster" 2>/dev/null)
-if [ "$IS_PRIMARY" == "true" ]; then
-    echo -e "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"
+ROLE=$1
+MY_IP=$(hostname -I | awk '{print $1}')
+HAPROXY_HOST="192.168.1.10"
+HAPROXY_STATS_PORT="9999"
+LOGFILE="/var/log/patroni-haproxy-sync.log"
+
+echo "$(date): Role changed to $ROLE for $MY_IP" >> $LOGFILE
+
+# Use socat if HAProxy stats socket is available locally
+# Otherwise signal HAProxy via HTTP stats interface
+if [ "$ROLE" = "master" ]; then
+  echo "$(date): $MY_IP promoted to PRIMARY" >> $LOGFILE
 else
-    echo -e "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 9\r\n\r\nnot-primary"
+  echo "$(date): $MY_IP is now REPLICA" >> $LOGFILE
 fi
 ```
 
 ```bash
-# Run as service on port 8009
-while true; do
-    /usr/local/bin/mongo-health.sh | nc -l -p 8009 -q 1
-done
+chmod +x /etc/patroni/haproxy_sync.sh
 ```
 
 ---
 
-## Redis Sentinel HAProxy Notify Script
+## Step 2.7 — Create Patroni systemd Service (Node 3 & 4)
 
 ```bash
-# /etc/redis/reconfig-haproxy.sh
-#!/bin/bash
-NEW_MASTER_IP=$6
-OLD_MASTER_IP=$4
-HAPROXY_SOCKET="/run/haproxy/admin.sock"
-
-# Disable old master
-echo "show servers state" | socat stdio "$HAPROXY_SOCKET" | \
-awk -v old="$OLD_MASTER_IP" '{if($4==old) print $2" "$3}' | \
-while read backend server; do
-    echo "disable server $backend/$server" | socat stdio "$HAPROXY_SOCKET"
-done
-
-# Enable new master
-echo "show servers state" | socat stdio "$HAPROXY_SOCKET" | \
-awk -v new="$NEW_MASTER_IP" '{if($4==new) print $2" "$3}' | \
-while read backend server; do
-    echo "enable server $backend/$server"  | socat stdio "$HAPROXY_SOCKET"
-    echo "set server $backend/$server weight 100" | socat stdio "$HAPROXY_SOCKET"
-done
-
-sudo systemctl reload haproxy
+# Run on BOTH Node 3 and Node 4
+nano /etc/systemd/system/patroni.service
 ```
 
----
+```ini
+[Unit]
+Description=Patroni - PostgreSQL HA
+After=network.target
 
-## Monitoring Stack
+[Service]
+Type=simple
+User=postgres
+Group=postgres
+ExecStart=/usr/local/bin/patroni /etc/patroni/patroni.yml
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=process
+TimeoutSec=30
+Restart=on-failure
+RestartSec=5s
 
-```mermaid
-flowchart LR
-    subgraph DB_NODES["📦 DB Nodes — Exporters"]
-        E1["mysql_exporter :9104\n+ Group Replication collectors"]
-        E2["postgres_exporter :9187"]
-        E3["redis_exporter :9121"]
-        E4["mongodb_exporter :9216"]
-        E5["haproxy_exporter :9101"]
-    end
-
-    subgraph MON["📊 Monitoring VM 10.10.78.140"]
-        P["Prometheus :9090\nScrapes all exporters every 15s"]
-        G["Grafana :3000\nDashboards per DB type + InnoDB Cluster"]
-        AM["Alertmanager :9093\nRoutes alerts to channels"]
-    end
-
-    subgraph NOTIFY["🔔 Notifications"]
-        S["Slack"]
-        PD["PagerDuty"]
-        EM["Email"]
-    end
-
-    E1 & E2 & E3 & E4 & E5 -->|"metrics"| P
-    P --> G
-    P -->|"alerts"| AM
-    AM --> S & PD & EM
+[Install]
+WantedBy=multi-user.target
 ```
-
-### mysql_exporter — InnoDB Cluster Flags
 
 ```bash
-mysql_exporter \
-  --collect.perf_schema.replication_group_members \
-  --collect.perf_schema.replication_group_member_stats \
-  --collect.perf_schema.replication_applier_status_by_worker \
-  --collect.info_schema.innodb_metrics \
-  --collect.global_status \
-  --collect.global_variables \
-  --web.listen-address=":9104"
+# Fix permissions
+chown -R postgres:postgres /etc/patroni
+chmod 700 /var/lib/postgresql/16/main
+
+systemctl daemon-reload
+systemctl enable patroni
 ```
-
-### InnoDB Cluster Alert Rules
-
-| Alert | Condition | Severity |
-|---|---|---|
-| MySQLMemberOffline | `member_state != ONLINE` | Critical |
-| MySQLTransactionBacklog | `transactions_in_queue > 100` for 1m | Warning |
-| MySQLConflictDetected | `count_conflicts_detected` increases | Warning |
-| MySQLNoFaultTolerance | ONLINE members < 2 | Critical |
-| MySQLPrimaryChanged | `primary_member` value changes | Info |
-| MySQLClusterDegraded | cluster status != OK | Critical |
 
 ---
 
-## Production Readiness Checklist
+## Step 2.8 — Start Patroni
 
-| Component | Status | Notes |
-|---|---|---|
-| HAProxy Active/Passive | ✅ | Keepalived VIP — unchanged |
-| HAProxy tunnel timeout | ✅ | `timeout tunnel 3600s` — unchanged |
-| MySQL HA — InnoDB Cluster 3 nodes | ✅ | Group Replication replaces Orchestrator |
-| MySQL auto-failover — no scripts | ✅ | Built-in consensus — failover.sh removed |
-| MySQL rejoin — one command | ✅ | `cluster.rejoinInstance()` |
-| MySQL promote — one command | ✅ | `cluster.setPrimaryInstance()` |
-| MySQL split-brain protection | ✅ | Quorum voting — 2 of 3 nodes required |
-| MySQL conflict detection | ✅ | Built-in Group Replication feature |
-| PostgreSQL HA | ✅ | Patroni + HTTP check — unchanged |
-| Redis HA | ✅ | Sentinel + notify script — unchanged |
-| MongoDB HA | ✅ | ReplicaSet + sidecar HTTP check — unchanged |
-| No SPOF on proxy layer | ✅ | 2x HAProxy + Keepalived — unchanged |
-| No custom failover scripts (MySQL) | ✅ | Orchestrator + failover.sh eliminated |
-| Group Replication metrics | 🆕 | member state, queue depth, conflict count |
-| InnoDB-specific alerts | 🆕 | 6 new alert rules added |
-| Monitoring isolated VM | ✅ | 10.10.78.140 — unchanged |
-| Alerts configured | ✅ | Alertmanager → Slack / PagerDuty / Email |
-| DBaaS provisioning | ✅ | mysqlsh + haproxy.cfg only — no scripts |
+```bash
+# Start Node 3 FIRST (becomes primary)
+# On Node 3:
+systemctl start patroni
+journalctl -u patroni -f    # watch logs
+
+# Wait until Node 3 shows as Leader, then start Node 4
+# On Node 4:
+systemctl start patroni
+journalctl -u patroni -f    # watch logs
+```
 
 ---
 
-## Summary
+## Step 2.9 — Verify PostgreSQL + Patroni
+
+```bash
+# On Node 2 (or any node with patronictl)
+pip3 install patroni[etcd]
+
+patronictl -c /etc/patroni/patroni.yml list
+```
+
+Expected output:
+```
++ Cluster: pg-cluster --------+----+-----------+
+| Member    | Host            | Role    | State   |
++-----------+-----------------+---------+---------+
+| pg-node3  | 192.168.1.12    | Leader  | running |
+| pg-node4  | 192.168.1.13    | Replica | running |
++-----------+-----------------+---------+---------+
+```
+
+```bash
+# Test PostgreSQL connection
+psql -h 192.168.1.12 -U postgres -c "SELECT version();"
+
+# Create rewind user (required for pg_rewind on failover)
+psql -h 192.168.1.12 -U postgres -c "
+  CREATE USER rewind_user WITH REPLICATION PASSWORD 'RewindPass123!';
+  GRANT EXECUTE ON function pg_catalog.pg_ls_dir(text, boolean, boolean) TO rewind_user;
+  GRANT EXECUTE ON function pg_catalog.pg_stat_file(text, boolean) TO rewind_user;
+  GRANT EXECUTE ON function pg_catalog.pg_read_binary_file(text) TO rewind_user;
+  GRANT EXECUTE ON function pg_catalog.pg_read_binary_file(text, bigint, bigint, boolean) TO rewind_user;
+"
+
+# Create app user
+psql -h 192.168.1.12 -U postgres -c "
+  CREATE USER appuser WITH PASSWORD 'AppPass123!';
+  GRANT CONNECT ON DATABASE postgres TO appuser;
+"
+```
+
+### ✅ PostgreSQL Stack Complete — Checklist
 
 ```
-✅ Single VIP entry point         — apps connect to one IP always
-✅ HAProxy Active/Passive         — no proxy SPOF via Keepalived
-✅ Separate port per cluster      — full traffic isolation
-✅ Correct HA tool per DB type    — InnoDB Cluster / Patroni / Sentinel / ReplicaSet
-✅ Correct health check per DB    — mysql-check / HTTP check / tcp-check role:master
-✅ Auto failover all DB types     — zero manual intervention
-✅ MySQL failover — no scripts    — Group Replication built-in consensus
-✅ MySQL rejoin/promote           — cluster.rejoinInstance() / setPrimaryInstance()
-✅ Zero cross-cluster impact      — cluster A down = others unaffected
-✅ Monitoring per DB type         — Prometheus exporters + Grafana
-✅ InnoDB Group Replication       — conflict detection, member state, queue depth
-✅ Alerting                       — Alertmanager → Slack / PagerDuty / Email
-✅ Scalable DBaaS provisioning    — add cluster = mysqlsh + haproxy.cfg only
-✅ Long-term maintainability      — Oracle-backed InnoDB, no archived dependencies
+□ PostgreSQL 16 installed on Node 3 and Node 4
+□ PostgreSQL service disabled (Patroni manages it)
+□ etcd running on Node 2
+□ Patroni config created on Node 3 and Node 4
+□ Patroni service running on both nodes
+□ patronictl list shows Leader + Replica
+□ rewind_user created
+□ appuser created
+```
+
+---
+---
+
+# STACK 3 — Replication Manager + etcd
+## Node 2
+
+---
+
+## Step 3.1 — Install signal18 Replication Manager on Node 2
+
+```bash
+# On Node 2
+# Download latest replication-manager
+REPMGR_VERSION="2.2.29"    # check latest at github.com/signal18/replication-manager
+wget https://github.com/signal18/replication-manager/releases/download/v${REPMGR_VERSION}/replication-manager-osc_${REPMGR_VERSION}_amd64.deb \
+  -O /tmp/replication-manager.deb
+
+dpkg -i /tmp/replication-manager.deb
+
+# Or install binary directly
+wget https://github.com/signal18/replication-manager/releases/latest/download/replication-manager-osc \
+  -O /usr/bin/replication-manager
+chmod +x /usr/bin/replication-manager
+
+# Verify
+replication-manager --version
+```
+
+---
+
+## Step 3.2 — Create Config Directory
+
+```bash
+# On Node 2
+mkdir -p /etc/replication-manager
+mkdir -p /var/lib/replication-manager
+mkdir -p /var/log/replication-manager
+```
+
+---
+
+## Step 3.3 — Configure Replication Manager
+
+```bash
+nano /etc/replication-manager/config.toml
+```
+
+```toml
+# ==============================================
+# signal18 Replication Manager Configuration
+# Ubuntu 24.04 | MySQL 8.0
+# ==============================================
+
+[default]
+title = "mysql-cluster"
+
+# --- DB Nodes ---
+hosts = "192.168.1.12:3306,192.168.1.13:3306"
+user = "repmgr:RepmgrPass123!"
+replication-user = "replicator:ReplPass123!"
+replication-credential = "replicator:ReplPass123!"
+
+# --- Failover ---
+failover-mode = "automatic"
+failover-limit = 5                      # max auto failovers before pausing
+failover-time-limit = 30                # seconds to confirm primary is dead
+failover-at-sync = true                 # only failover if standby is in sync
+failover-restart-unsafe = false
+
+# --- Auto Rejoin (old primary recovery) ---
+autorejoin = true
+autorejoin-flashback = true             # fast resync via binlog
+autorejoin-backup-binlog = true
+autorejoin-mysqldump = false            # fallback: full dump (slower)
+autorejoin-slave-positional-heartbeat = true
+
+# --- GTID ---
+replication-use-gtid = "slave_pos"      # use GTID for MySQL 8.0
+
+# --- HAProxy on Node 1 handles routing automatically ---
+# No proxy integration needed in replication-manager
+
+# --- Monitoring ---
+monitoring-save-config = true
+monitoring-sharedir = "/var/lib/replication-manager"
+
+# --- Logging ---
+log-file = "/var/log/replication-manager/replication-manager.log"
+log-level = 1
+
+# --- Web UI ---
+http-server = true
+http-bind-address = "0.0.0.0"
+http-port = "10001"
+http-auth = true
+http-bootstrap-button = true
+```
+
+---
+
+## Step 3.4 — Create systemd Service for Replication Manager
+
+```bash
+nano /etc/systemd/system/replication-manager.service
+```
+
+```ini
+[Unit]
+Description=signal18 Replication Manager
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/replication-manager monitor \
+  --config=/etc/replication-manager/config.toml
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl daemon-reload
+systemctl enable replication-manager
+systemctl start replication-manager
+
+# Watch logs
+journalctl -u replication-manager -f
+```
+
+---
+
+## Step 3.5 — Verify Replication Manager
+
+```bash
+# Check topology
+replication-manager-cli --cluster=mysql-cluster topology
+
+# Expected output:
+# +------------------+--------+---------------+----------+
+# | Host             | Status | Role          | GTID     |
+# +------------------+--------+---------------+----------+
+# | 192.168.1.12     | OK     | master        | ...      |
+# | 192.168.1.13     | OK     | slave         | ...      |
+# +------------------+--------+---------------+----------+
+
+# Access Web UI
+# http://192.168.1.11:10001
+```
+
+---
+
+## Step 3.6 — How Auto Rejoin Works (After Old Primary Recovers)
+
+This is handled automatically by `autorejoin = true` in config.toml. Here is exactly what happens:
+
+### Failover Flow (Node 3 crashes)
+```
+Node 3 MySQL crashes
+        │
+        ▼
+replication-manager detects failure (~3s)
+        │
+        ▼
+Promotes Node 4 → new primary
+SET read_only = OFF on Node 4
+        │
+        ▼
+HAProxy health check detects Node 3 down
+Routes all traffic to Node 4 ✅
+```
+
+### Rejoin Flow (Node 3 comes back)
+```
+Node 3 MySQL comes back online
+        │
+        ▼
+replication-manager detects Node 3 is alive
+        │
+        ▼
+Compares GTID position:
+  ├── Node 3 is BEHIND Node 4?
+  │     → flashback via binlog (fast, seconds)
+  └── Node 3 is AHEAD of Node 4? (had extra transactions)
+        → mysqldump full resync (slower, safe)
+        │
+        ▼
+replication-manager reconfigures Node 3:
+  SET read_only = ON
+  CHANGE REPLICATION SOURCE TO master_host='Node4'
+  START REPLICA
+        │
+        ▼
+Node 3 rejoins as standby replica ✅
+HAProxy keeps routing to Node 4 (still primary)
+```
+
+### To verify rejoin after Node 3 recovers:
+```bash
+# Watch replication-manager detect and rejoin Node 3
+replication-manager-cli --cluster=mysql-cluster topology
+
+# Expected after rejoin:
+# | 192.168.1.13     | OK     | master  |   ← Node 4 still primary
+# | 192.168.1.12     | OK     | slave   |   ← Node 3 rejoined as standby
+
+# Check replication is running on Node 3
+mysql -h 192.168.1.12 -u root -p -e "SHOW REPLICA STATUS\G" | grep -E "Running|Behind"
+# Expected:
+#   Replica_IO_Running: Yes
+#   Replica_SQL_Running: Yes
+#   Seconds_Behind_Source: 0
+```
+
+### Optional — Switchback to Node 3 as Primary (graceful)
+```bash
+# Only do this if you want Node 3 to be primary again
+# This is a graceful zero-downtime switchover
+replication-manager-cli --cluster=mysql-cluster switchover
+
+# After switchover:
+# | 192.168.1.12     | OK     | master  |   ← Node 3 primary again
+# | 192.168.1.13     | OK     | slave   |   ← Node 4 back to standby
+```
+
+### ✅ Replication Manager Complete — Checklist
+
+```
+□ replication-manager binary installed on Node 2
+□ config.toml created with correct IPs and credentials
+□ autorejoin = true confirmed in config
+□ systemd service running
+□ topology shows Node 3 as master, Node 4 as slave
+□ Web UI accessible at http://192.168.1.11:10001
+□ Test failover: stop Node 3 MySQL → Node 4 promotes
+□ Test rejoin: start Node 3 MySQL → rejoins as slave
+```
+
+---
+---
+
+# STACK 4 — HAProxy
+## Node 1
+
+---
+
+## Step 4.1 — Install HAProxy on Node 1
+
+```bash
+# On Node 1
+apt update
+apt install -y haproxy
+
+# Verify version (need 2.x+)
+haproxy -v
+# Expected: HAProxy version 2.x.x
+
+systemctl enable haproxy
+```
+
+---
+
+## Step 4.2 — Configure HAProxy
+
+```bash
+# Backup default config
+cp /etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg.bak
+
+nano /etc/haproxy/haproxy.cfg
+```
+
+```cfg
+#---------------------------------------------------------------------
+# Global settings
+#---------------------------------------------------------------------
+global
+    log /dev/log    local0
+    log /dev/log    local1 notice
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+    maxconn 4096
+
+#---------------------------------------------------------------------
+# Default settings
+#---------------------------------------------------------------------
+defaults
+    log     global
+    mode    tcp
+    option  tcplog
+    option  dontlognull
+    timeout connect 5s
+    timeout client  30s
+    timeout server  30s
+    retries 3
+
+#---------------------------------------------------------------------
+# HAProxy Stats UI
+#---------------------------------------------------------------------
+listen stats
+    bind *:9999
+    mode http
+    stats enable
+    stats uri /stats
+    stats refresh 5s
+    stats auth admin:HaproxyAdmin123!
+
+#---------------------------------------------------------------------
+# MySQL — primary only, read and write (port 3306)
+#---------------------------------------------------------------------
+frontend mysql_front
+    bind *:3306
+    mode tcp
+    default_backend mysql_primary
+
+backend mysql_primary
+    mode tcp
+    option tcp-check
+    server mysql-node3 192.168.1.12:3306 check inter 2s rise 2 fall 3
+    server mysql-node4 192.168.1.13:3306 check inter 2s rise 2 fall 3 backup
+
+#---------------------------------------------------------------------
+# PostgreSQL — primary only, read and write (port 5432)
+#---------------------------------------------------------------------
+frontend pgsql_front
+    bind *:5432
+    mode tcp
+    default_backend pg_primary
+
+backend pg_primary
+    mode tcp
+    option tcp-check
+    tcp-check connect
+    server pg-node3 192.168.1.12:5432 check inter 2s rise 2 fall 3
+    server pg-node4 192.168.1.13:5432 check inter 2s rise 2 fall 3 backup
+```
+
+```bash
+# Validate config
+haproxy -c -f /etc/haproxy/haproxy.cfg
+# Expected: Configuration file is valid
+
+systemctl start haproxy
+systemctl status haproxy
+```
+
+---
+
+## Step 4.3 — Verify Full Stack
+
+```bash
+# --- Test MySQL (port 3306 → primary only) ---
+mysql -h 192.168.1.10 -P 3306 -u appuser -p'AppPass123!' \
+  -e "SELECT @@hostname, @@read_only;"
+# Expected: node3, 0 (primary)
+
+# --- Test PostgreSQL (port 5432 → primary only) ---
+psql -h 192.168.1.10 -p 5432 -U postgres \
+  -c "SELECT inet_server_addr(), pg_is_in_recovery();"
+# Expected: 192.168.1.12, f (primary, not in recovery)
+
+# --- HAProxy stats ---
+# Open in browser: http://192.168.1.10:9999/stats
+
+# --- Replication Manager topology ---
+replication-manager-cli --cluster=mysql-cluster topology
+
+# --- Patroni cluster status ---
+patronictl -c /etc/patroni/patroni.yml list
+```
+
+### ✅ HAProxy Complete — Checklist
+
+```
+□ HAProxy installed and running on Node 1
+□ HAProxy config validated (haproxy -c)
+□ MySQL read/write via port 3306 working (primary only)
+□ PostgreSQL read/write via port 5432 working (primary only)
+□ HAProxy stats accessible at :9999/stats
+```
+
+---
+---
+
+# FAILOVER TESTS — Run Before Go-Live
+
+## Test 1 — MySQL Primary Failure
+
+```bash
+# Simulate Node 3 MySQL crash
+systemctl stop mysql          # on Node 3
+
+# Watch replication-manager promote Node 4 (~3s)
+replication-manager-cli --cluster=mysql-cluster topology
+
+# Verify HAProxy rerouted to Node 4
+mysql -h 192.168.1.10 -P 3306 -u appuser -p'AppPass123!' \
+  -e "SELECT @@hostname, @@read_only;"
+# Expected: node4, 0 (Node4 is now primary)
+# Restore Node 3
+systemctl start mysql         # on Node 3
+# Watch autorejoin — Node 3 should rejoin as slave (~30s)
+replication-manager-cli --cluster=mysql-cluster topology
+```
+
+## Test 2 — PostgreSQL Primary Failure
+
+```bash
+# Simulate Node 3 PostgreSQL crash
+patronictl -c /etc/patroni/patroni.yml failover pg-cluster --master pg-node3 --force
+
+# Watch Node 4 become leader
+patronictl -c /etc/patroni/patroni.yml list
+
+# Node 3 auto-rejoins as replica via pg_rewind
+# Watch logs
+journalctl -u patroni -f      # on Node 3
+```
+
+## Test 3 — Manual Switchover (graceful, zero downtime)
+
+```bash
+# MySQL graceful switchover
+replication-manager-cli --cluster=mysql-cluster switchover
+
+# PostgreSQL graceful switchover
+patronictl -c /etc/patroni/patroni.yml switchover pg-cluster
+```
+
+---
+
+# Final Summary
+
+| Component | Node | Status Check |
+|---|---|---|
+| MySQL Primary | Node 3 | `mysql -h 192.168.1.12 -e "SHOW MASTER STATUS"` |
+| MySQL Standby | Node 4 | `mysql -h 192.168.1.13 -e "SHOW REPLICA STATUS\G"` |
+| PostgreSQL Cluster | Node 3+4 | `patronictl -c /etc/patroni/patroni.yml list` |
+| Replication Manager | Node 2 | `http://192.168.1.11:10001` |
+| etcd | Node 2 | `etcdctl endpoint health` |
+| HAProxy | Node 1 | `http://192.168.1.10:9999/stats` |
+
+## App Connection Strings
+
+```bash
+# MySQL — all traffic to primary (read + write)
+mysql -h 192.168.1.10 -P 3306 -u appuser -p'AppPass123!'
+
+# PostgreSQL — all traffic to primary (read + write)
+psql -h 192.168.1.10 -p 5432 -U appuser
 ```
