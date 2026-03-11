@@ -1,0 +1,37 @@
+# Build artifacts
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Coverage and profiling
+coverage.out
+coverage.txt
+*.prof
+
+# Environment and local overrides
+.env
+.env.*
+!.env.example
+.envrc
+*.local
+
+# Logs and temp files
+*.log
+/tmp/
+/.cache/
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

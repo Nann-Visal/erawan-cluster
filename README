@@ -1,135 +1,255 @@
-# erawan-cluster (Go)
+# erawan-cluster
 
-Go REST API for:
-- Dynamic HAProxy tenant config management.
-- Native MySQL InnoDB Cluster automation via Ansible (no base64 shell script endpoint).
+REST API written in Go for:
+- HAProxy tenant config generation + reload.
+- MySQL InnoDB Cluster lifecycle automation through Ansible playbooks.
 
-Project structure follows a `cmd/` + `internal/` layout and keeps cluster automation in:
-- `cluster/mysql`
-- `cluster/pgsql` (placeholder for next phase)
+## Table of Contents
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [How It Works](#how-it-works)
+- [Prerequisites](#prerequisites)
+- [Install](#install)
+- [Run](#run)
+- [Configuration](#configuration)
+- [API](#api)
+- [Security Notes](#security-notes)
+- [Development](#development)
+- [Extra Documentation](#extra-documentation)
 
-## Structure
+## Tech Stack
+- Go `1.22+`
+- HTTP router: [`go-chi/chi`](https://github.com/go-chi/chi)
+- Automation engine: Ansible (`ansible-playbook`)
+- Database tooling on target nodes: `mysql`, `mysqlsh`, optional `mysqlrouter`
+- Proxy layer: HAProxy + `systemd` reload command
 
-- `cmd/api` HTTP server and handlers
-- `internal/haproxy` HAProxy config/reload service
-- `internal/cluster/mysql` MySQL cluster deploy/resume/rollback engine
-- `cluster/mysql/playbooks` Ansible playbooks (`deploy.yml`, `rollback.yml`)
-- `cluster/pgsql` placeholder
+## Project Structure
+- `cmd/api`: API bootstrap, router, handlers
+- `internal/haproxy`: tenant config write/delete/list + reload service
+- `internal/cluster/mysql`: deploy/resume/rollback workflow and job store
+- `cluster/mysql/playbooks`: Ansible playbooks (`deploy.yml`, `rollback.yml`)
+- `cluster/pgsql`: placeholder for next phase
+- `doc/mysql.md`: manual MySQL cluster guide
 
-## Requirements
+## How It Works
+1. API receives a request.
+2. Request is validated (strict JSON fields, strong field checks).
+3. For HAProxy endpoints:
+   - Tenant config is written to `TENANTS_DIR`.
+   - Reload command is executed (default: `sudo /bin/systemctl reload haproxy`).
+4. For MySQL cluster endpoints:
+   - API builds temporary Ansible inventory + vars.
+   - Tagged playbook steps run in sequence.
+   - Job state is persisted under `CLUSTER_STATE_DIR`.
 
-- Go 1.22+
-- Ansible with `ansible-playbook`
-- Target DB nodes with `mysql`, `mysqlsh`, and optional `mysqlrouter`
-- API host can run HAProxy reload command (`sudo /bin/systemctl reload haproxy` by default)
+## Prerequisites
+
+### API VM (this service host)
+- Go `1.22+`
+- `ansible-playbook`
+- Access to HAProxy config directory
+- Permission to run reload command (default `sudo /bin/systemctl reload haproxy`)
+
+### MySQL target nodes
+- Running MySQL
+- `mysqlsh` installed
+- Optional `mysqlrouter` if `bootstrap_router=true`
+- SSH reachable from API VM with provided credentials
+
+### User / Permission Model
+No fixed Linux username is required. Use either:
+- `root`, or
+- a `sudo` user that can:
+  - create/write `TENANTS_DIR` and `CLUSTER_STATE_DIR`
+  - execute the HAProxy reload command
+
+If you run the API as non-root, grant a sudoers rule (NOPASSWD) for the reload command.
+
+## Install
+
+### 1) Clone
+```bash
+git clone <your-repo-url> erawan-cluster
+cd erawan-cluster
+```
+
+### 2) Install dependencies (Ubuntu example)
+```bash
+sudo apt update
+sudo apt install -y golang-go ansible haproxy
+```
+
+### 3) Download Go modules
+```bash
+go mod tidy
+```
 
 ## Run
 
+### Run directly
 ```bash
-go mod tidy
 make run
 ```
 
-Server default: `0.0.0.0:8080`
+### Build binary
+```bash
+make build
+./bin/erawan-cluster
+```
 
-## Environment Variables
+Default listen address: `0.0.0.0:8080`
 
-- `API_ADDR` full listen address (example `:8080`)
-- `API_HOST` host fallback when `API_ADDR` is empty (default `0.0.0.0`)
-- `API_PORT` port fallback when `API_ADDR` is empty (default `8080`)
-- `API_KEY` optional API key. If set, every request must include `X-API-Key`.
-- `TENANTS_DIR` HAProxy tenant config directory (default `/var/lib/erawan-cluster/haproxy/tenants`)
-- `HAPROXY_RELOAD_CMD` command string for reload (default `sudo /bin/systemctl reload haproxy`)
-- `HAPROXY_RELOAD_TIMEOUT_SECONDS` (default `15`)
-- `CLUSTER_STATE_DIR` MySQL job state directory (default `/var/lib/erawan-cluster/cluster/jobs`)
-- `ANSIBLE_PLAYBOOK_BIN` (default `ansible-playbook`)
-- `MYSQL_DEPLOY_PLAYBOOK` default `cluster/mysql/playbooks/deploy.yml`
-- `MYSQL_ROLLBACK_PLAYBOOK` default `cluster/mysql/playbooks/rollback.yml`
+Health check:
+```bash
+curl http://127.0.0.1:8080/health
+```
+
+## Configuration
+
+Environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `API_ADDR` | empty | Full listen address. Example: `:8080` or `0.0.0.0:8080` |
+| `API_HOST` | `0.0.0.0` | Host fallback when `API_ADDR` is empty |
+| `API_PORT` | `8080` | Port fallback when `API_ADDR` is empty |
+| `ENV` | `dev` | Runtime environment label |
+| `API_KEY` | empty | If set, every request must include `X-API-Key` |
+| `TENANTS_DIR` | `/var/lib/erawan-cluster/haproxy/tenants` | HAProxy tenant config directory |
+| `HAPROXY_RELOAD_CMD` | `sudo /bin/systemctl reload haproxy` | Command used by `POST /haproxy/reload` and config changes |
+| `HAPROXY_RELOAD_TIMEOUT_SECONDS` | `15` | Reload command timeout |
+| `CLUSTER_STATE_DIR` | `/var/lib/erawan-cluster/cluster/jobs` | Job state directory |
+| `ANSIBLE_PLAYBOOK_BIN` | `ansible-playbook` | Ansible binary path |
+| `MYSQL_DEPLOY_PLAYBOOK` | `<repo>/cluster/mysql/playbooks/deploy.yml` | Deploy playbook path |
+| `MYSQL_ROLLBACK_PLAYBOOK` | `<repo>/cluster/mysql/playbooks/rollback.yml` | Rollback playbook path |
 
 ## API
 
+Base URL example: `http://127.0.0.1:8080`
+
+Response envelope:
+```json
+{
+  "status": "ok",
+  "message": "text",
+  "data": {}
+}
+```
+
+### Auth
+If `API_KEY` is configured:
+```http
+X-API-Key: <your-key>
+```
+
 ### Health
+- `GET /health`
+- `GET /docs` serves `index.html`
 
-`GET /health`
-
-### HAProxy
-
+### HAProxy Endpoints
 - `POST /haproxy/config`
 - `DELETE /haproxy/config`
 - `GET /haproxy/configs`
 - `POST /haproxy/reload`
 
-Create body:
-
-```json
-{
-  "port": 25010,
-  "node_ips": ["10.10.107.182", "10.10.107.183"],
-  "db_port": 6446
-}
+Create config example:
+```bash
+curl -X POST http://127.0.0.1:8080/haproxy/config \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "port": 25010,
+    "node_ips": ["10.10.107.182", "10.10.107.183"],
+    "db_port": 6446
+  }'
 ```
 
-`node_ip` (single string) is still accepted for compatibility.
+Notes:
+- `node_ips` accepts either a string array or a single string.
+- `node_ip` (legacy single-field input) is still accepted for compatibility.
 
-### MySQL Cluster (Direct Params)
-
-#### Deploy
-
-`POST /cluster/mysql/deploy`
-
-```json
-{
-  "root_password": "RootPass#2026",
-  "cluster_admin_username": "clusteradmin",
-  "cluster_admin_password": "ClusterAdmin#2026",
-  "cluster_name": "sambar6Cluster",
-  "primary_ip": "192.168.122.154",
-  "secondary_ips": ["192.168.122.111"],
-  "bootstrap_router": true,
-  "ssh_user": "root",
-  "ssh_password": "password",
-  "ssh_port": 22,
-  "mysql_port": 3306,
-  "router_base_port": 6446,
-  "step_timeout_seconds": 900
-}
-```
-
-#### Job status/list
-
+### MySQL Cluster Endpoints
+- `POST /cluster/mysql/deploy`
 - `GET /cluster/mysql/jobs?limit=20`
 - `GET /cluster/mysql/jobs/{jobID}`
+- `POST /cluster/mysql/jobs/{jobID}/resume`
+- `POST /cluster/mysql/jobs/{jobID}/rollback`
 
-#### Resume failed job
-
-`POST /cluster/mysql/jobs/{jobID}/resume`
-
-```json
-{
-  "root_password": "RootPass#2026",
-  "cluster_admin_password": "ClusterAdmin#2026",
-  "ssh_password": "password"
-}
+Deploy example:
+```bash
+curl -X POST http://127.0.0.1:8080/cluster/mysql/deploy \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "root_password": "RootPass#2026",
+    "cluster_admin_username": "clusteradmin",
+    "cluster_admin_password": "ClusterAdmin#2026",
+    "cluster_name": "prodCluster",
+    "primary_ip": "10.10.10.1",
+    "secondary_ips": ["10.10.10.2", "10.10.10.3"],
+    "bootstrap_router": true,
+    "ssh_user": "root",
+    "ssh_password": "password",
+    "ssh_port": 22,
+    "mysql_port": 3306,
+    "router_base_port": 6446,
+    "step_timeout_seconds": 900
+  }'
 ```
 
-#### Rollback job
-
-`POST /cluster/mysql/jobs/{jobID}/rollback`
-
-```json
-{
-  "root_password": "RootPass#2026",
-  "cluster_admin_password": "ClusterAdmin#2026",
-  "ssh_password": "password"
-}
+Resume example:
+```bash
+curl -X POST http://127.0.0.1:8080/cluster/mysql/jobs/<job-id>/resume \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "root_password": "RootPass#2026",
+    "cluster_admin_password": "ClusterAdmin#2026",
+    "ssh_password": "password"
+  }'
 ```
+
+Rollback example:
+```bash
+curl -X POST http://127.0.0.1:8080/cluster/mysql/jobs/<job-id>/rollback \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "root_password": "RootPass#2026",
+    "cluster_admin_password": "ClusterAdmin#2026",
+    "ssh_password": "password"
+  }'
+```
+
+Job statuses:
+- `pending`
+- `running`
+- `failed`
+- `completed`
+- `rolled_back`
+
+Deployment steps:
+- `preflight`
+- `configure_instances`
+- `create_cluster`
+- `add_instances`
+- `bootstrap_router` (skipped when `bootstrap_router=false`)
+- `verify_cluster`
 
 ## Security Notes
+- Optional API key auth middleware (`X-API-Key`).
+- Constant-time API key comparison.
+- Request body size cap: `1 MiB`.
+- JSON decode disallows unknown fields.
+- IP, name, username, and port validation for critical fields.
+- Job files stored with restrictive permissions (`0700` directory, `0600` files).
+- User input is not shell-interpolated into command strings.
 
-- Optional API key auth (`API_KEY` + `X-API-Key`).
-- Request body size limit (1MB).
-- Strong request validation for IPs, names, ports.
-- No shell interpolation from user input in Go command execution.
-- Job state stored with restrictive permissions (`0600` files, `0700` dir).
+## Development
+```bash
+make tidy   # go mod tidy
+make fmt    # gofmt -w cmd internal
+make test   # go test ./...
+make build  # build binary to ./bin
+make run    # run API
+```
 
-## Removed Behavior
+## Extra Documentation
+- MySQL manual setup and operational notes: `doc/mysql.md`
