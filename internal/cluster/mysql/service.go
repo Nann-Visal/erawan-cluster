@@ -51,6 +51,7 @@ func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 			ClusterName:          req.ClusterName,
 			PrimaryIP:            req.PrimaryIP,
 			SecondaryIPs:         req.SecondaryIPs,
+			AssumePrepared:       req.AssumePrepared,
 			BootstrapRouter:      req.BootstrapRouter,
 			SSHUser:              req.SSHUser,
 			SSHPort:              req.SSHPort,
@@ -153,7 +154,7 @@ func (s *Service) executeFrom(ctx context.Context, job *Job, startIndex int, sec
 	timeout := time.Duration(job.Request.StepTimeoutSeconds) * time.Second
 	for i := startIndex; i < len(s.steps); i++ {
 		st := s.steps[i]
-		if st.Skippable && !job.Request.BootstrapRouter {
+		if reason, shouldSkip := shouldSkipStep(st, job.Request); shouldSkip {
 			job.LastCompletedStep = i
 			job.CurrentStep = st.Name
 			job.Steps = append(job.Steps, StepResult{
@@ -162,7 +163,7 @@ func (s *Service) executeFrom(ctx context.Context, job *Job, startIndex int, sec
 				StartedAt: time.Now().UTC(),
 				EndedAt:   time.Now().UTC(),
 				ExitCode:  0,
-				Message:   "bootstrap_router is false",
+				Message:   reason,
 			})
 			if err := s.store.Save(job); err != nil {
 				return err
@@ -208,6 +209,16 @@ func (s *Service) executeFrom(ctx context.Context, job *Job, startIndex int, sec
 		return err
 	}
 	return nil
+}
+
+func shouldSkipStep(st step, spec StoredSpec) (string, bool) {
+	if st.Skippable && !spec.BootstrapRouter {
+		return "bootstrap_router is false", true
+	}
+	if spec.AssumePrepared && (st.Name == "preflight" || st.Name == "configure_instances") {
+		return "assume_prepared is true", true
+	}
+	return "", false
 }
 
 func newJobID() string {

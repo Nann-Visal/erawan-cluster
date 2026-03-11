@@ -5,7 +5,10 @@
   become: true
   tasks:
     - name: Ensure mysqlsh is installed
-      ansible.builtin.command: command -v mysqlsh
+      ansible.builtin.command:
+        argv:
+          - mysqlsh
+          - --version
       register: mysqlsh_check
       changed_when: false
       failed_when: mysqlsh_check.rc != 0
@@ -28,18 +31,58 @@
       failed_when: mysql_ping.rc != 0
       tags: ["preflight"]
 
+    - name: Ensure report_host is configured in MySQL
+      ansible.builtin.copy:
+        dest: /etc/mysql/mysql.conf.d/99-erawan-cluster.cnf
+        mode: "0644"
+        content: |
+          [mysqld]
+          report_host = {{ ansible_host }}
+      register: report_host_config
+      tags: ["configure_instances"]
+
+    - name: Restart MySQL when report_host config changed
+      ansible.builtin.systemd:
+        name: mysql
+        state: restarted
+      when: report_host_config.changed
+      tags: ["configure_instances"]
+
+    - name: Wait for MySQL to come back
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ mysql_port }}"
+        state: started
+        timeout: 120
+      when: report_host_config.changed
+      tags: ["configure_instances"]
+
     - name: Configure instance for InnoDB cluster
-      ansible.builtin.command:
-        argv:
-          - mysqlsh
-          - --js
-          - -e
-          - >-
-            dba.configureInstance('root@{{ ansible_host }}:{{ mysql_port }}',
-            {password: {{ root_password | to_json }},
-            clusterAdmin: {{ cluster_admin_username | to_json }},
-            clusterAdminPassword: {{ cluster_admin_password | to_json }},
-            restart: true})
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cat >/tmp/configure_instance.py <<'PY'
+        instance = "root@{{ ansible_host }}:{{ mysql_port }}"
+        options = {
+          "password": {{ root_password | to_json }},
+          "clusterAdmin": {{ cluster_admin_username | to_json }},
+          "clusterAdminPassword": {{ cluster_admin_password | to_json }},
+          "restart": True
+        }
+
+        try:
+          dba.configure_instance(instance, options)
+        except Exception as e:
+          msg = str(e)
+          if "clusterAdminPassword is not allowed for an existing account" in msg or "account already exists" in msg:
+            options.pop("clusterAdminPassword", None)
+            dba.configure_instance(instance, options)
+          else:
+            raise
+        PY
+        mysqlsh --py --file /tmp/configure_instance.py
+        rm -f /tmp/configure_instance.py
+      args:
+        executable: /bin/bash
       register: configure_instance
       changed_when: true
       tags: ["configure_instances"]
@@ -52,18 +95,22 @@
     - name: Ensure cluster exists
       ansible.builtin.shell: |
         set -euo pipefail
-        cat >/tmp/create_cluster.js <<'JS'
-        shell.connect("{{ cluster_admin_username }}@{{ primary_ip }}:{{ mysql_port }}", "{{ cluster_admin_password }}");
-        try {
-          dba.getCluster("{{ cluster_name }}");
-          print("cluster already exists");
-        } catch (e) {
-          dba.createCluster("{{ cluster_name }}", {multiPrimary: false});
-          print("cluster created");
-        }
-        JS
-        mysqlsh --js --file /tmp/create_cluster.js
-        rm -f /tmp/create_cluster.js
+        cat >/tmp/create_cluster.py <<'PY'
+        shell.connect({
+          "user": {{ cluster_admin_username | to_json }},
+          "host": {{ primary_ip | to_json }},
+          "port": {{ mysql_port }},
+          "password": {{ cluster_admin_password | to_json }}
+        })
+        try:
+          dba.get_cluster({{ cluster_name | to_json }})
+          print("cluster already exists")
+        except Exception:
+          dba.create_cluster({{ cluster_name | to_json }}, {"multiPrimary": False})
+          print("cluster created")
+        PY
+        mysqlsh --py --file /tmp/create_cluster.py
+        rm -f /tmp/create_cluster.py
       args:
         executable: /bin/bash
       register: create_cluster
@@ -73,32 +120,36 @@
     - name: Add secondary instances to cluster
       ansible.builtin.shell: |
         set -euo pipefail
-        cat >/tmp/add_instances.js <<'JS'
-        shell.connect("{{ cluster_admin_username }}@{{ primary_ip }}:{{ mysql_port }}", "{{ cluster_admin_password }}");
-        var cluster = dba.getCluster("{{ cluster_name }}");
-        var hosts = {{ secondary_ips | to_json }};
+        cat >/tmp/add_instances.py <<'PY'
+        shell.connect({
+          "user": {{ cluster_admin_username | to_json }},
+          "host": {{ primary_ip | to_json }},
+          "port": {{ mysql_port }},
+          "password": {{ cluster_admin_password | to_json }}
+        })
+        cluster = dba.get_cluster({{ cluster_name | to_json }})
+        hosts = {{ secondary_ips | to_json }}
+        cluster_admin_username = {{ cluster_admin_username | to_json }}
+        mysql_port = {{ mysql_port }}
+        cluster_admin_password = {{ cluster_admin_password | to_json }}
 
-        for (var i = 0; i < hosts.length; i++) {
-          var host = hosts[i];
-          var endpoint = "{{ cluster_admin_username }}@" + host + ":{{ mysql_port }}";
-          try {
-            cluster.addInstance(endpoint, {
-              password: "{{ cluster_admin_password }}",
-              recoveryMethod: "clone"
-            });
-            print("added " + host);
-          } catch (e) {
-            var message = String(e).toLowerCase();
-            if (message.indexOf("already") >= 0) {
-              print("already in cluster " + host);
-            } else {
-              throw e;
-            }
-          }
-        }
-        JS
-        mysqlsh --js --file /tmp/add_instances.js
-        rm -f /tmp/add_instances.js
+        for host in hosts:
+          endpoint = f"{cluster_admin_username}@{host}:{mysql_port}"
+          try:
+            cluster.add_instance(endpoint, {
+              "password": cluster_admin_password,
+              "recoveryMethod": "clone"
+            })
+            print("added " + host)
+          except Exception as e:
+            message = str(e).lower()
+            if "already" in message:
+              print("already in cluster " + host)
+            else:
+              raise
+        PY
+        mysqlsh --py --file /tmp/add_instances.py
+        rm -f /tmp/add_instances.py
       args:
         executable: /bin/bash
       register: add_instances
@@ -108,13 +159,20 @@
     - name: Verify cluster status
       ansible.builtin.shell: |
         set -euo pipefail
-        cat >/tmp/verify_cluster.js <<'JS'
-        shell.connect("{{ cluster_admin_username }}@{{ primary_ip }}:{{ mysql_port }}", "{{ cluster_admin_password }}");
-        var cluster = dba.getCluster("{{ cluster_name }}");
-        print(JSON.stringify(cluster.status(), null, 2));
-        JS
-        mysqlsh --js --file /tmp/verify_cluster.js
-        rm -f /tmp/verify_cluster.js
+        cat >/tmp/verify_cluster.py <<'PY'
+        import json
+
+        shell.connect({
+          "user": {{ cluster_admin_username | to_json }},
+          "host": {{ primary_ip | to_json }},
+          "port": {{ mysql_port }},
+          "password": {{ cluster_admin_password | to_json }}
+        })
+        cluster = dba.get_cluster({{ cluster_name | to_json }})
+        print(json.dumps(cluster.status(), indent=2))
+        PY
+        mysqlsh --py --file /tmp/verify_cluster.py
+        rm -f /tmp/verify_cluster.py
       args:
         executable: /bin/bash
       register: verify_cluster

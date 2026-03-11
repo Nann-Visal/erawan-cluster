@@ -5,17 +5,31 @@ REST API written in Go for:
 - MySQL InnoDB Cluster lifecycle automation through Ansible playbooks.
 
 ## Table of Contents
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [How It Works](#how-it-works)
-- [Prerequisites](#prerequisites)
-- [Install](#install)
-- [Run](#run)
-- [Configuration](#configuration)
-- [API](#api)
-- [Security Notes](#security-notes)
-- [Development](#development)
-- [Extra Documentation](#extra-documentation)
+- [erawan-cluster](#erawan-cluster)
+  - [Table of Contents](#table-of-contents)
+  - [Tech Stack](#tech-stack)
+  - [Project Structure](#project-structure)
+  - [How It Works](#how-it-works)
+  - [Prerequisites](#prerequisites)
+    - [API VM (this service host)](#api-vm-this-service-host)
+    - [MySQL target nodes](#mysql-target-nodes)
+    - [User / Permission Model](#user--permission-model)
+  - [Install](#install)
+    - [1) Clone](#1-clone)
+    - [2) Install dependencies (Ubuntu example)](#2-install-dependencies-ubuntu-example)
+    - [3) Download Go modules](#3-download-go-modules)
+  - [Run](#run)
+    - [Run directly](#run-directly)
+    - [Build binary](#build-binary)
+  - [Configuration](#configuration)
+  - [API](#api)
+    - [Auth](#auth)
+    - [Health](#health)
+    - [HAProxy Endpoints](#haproxy-endpoints)
+    - [MySQL Cluster Endpoints](#mysql-cluster-endpoints)
+  - [Security Notes](#security-notes)
+  - [Development](#development)
+  - [Extra Documentation](#extra-documentation)
 
 ## Tech Stack
 - Go `1.22+`
@@ -56,6 +70,7 @@ REST API written in Go for:
 - `mysqlsh` installed
 - Optional `mysqlrouter` if `bootstrap_router=true`
 - SSH reachable from API VM with provided credentials
+- For fast mode (`assume_prepared=true`), `clusteradmin` must already exist and be reachable from cluster nodes
 
 ### User / Permission Model
 No fixed Linux username is required. Use either:
@@ -186,7 +201,8 @@ curl -X POST http://127.0.0.1:8080/cluster/mysql/deploy \
     "cluster_name": "prodCluster",
     "primary_ip": "10.10.10.1",
     "secondary_ips": ["10.10.10.2", "10.10.10.3"],
-    "bootstrap_router": true,
+    "assume_prepared": true,
+    "bootstrap_router": false,
     "ssh_user": "root",
     "ssh_password": "password",
     "ssh_port": 22,
@@ -195,6 +211,16 @@ curl -X POST http://127.0.0.1:8080/cluster/mysql/deploy \
     "step_timeout_seconds": 900
   }'
 ```
+
+Fast-path note:
+- Set `assume_prepared=true` when nodes are already prepared (`mysql`, `mysqlsh`, `report_host`, restart done). This skips `preflight` and `configure_instances` to reduce deploy time.
+- For fastest runtime, combine with `bootstrap_router=false` and bootstrap router later.
+
+Fast-path checklist (`assume_prepared=true`):
+1. `report_host` on each node resolves to its real node IP (not loopback `127.0.1.1`).
+2. `clusteradmin` user exists and can connect from peers (`'clusteradmin'@'%'` or stricter network host entries).
+3. `root` remote login works if you still use resume/rollback secrets with root operations.
+4. Nodes can reach each other over MySQL port.
 
 Resume example:
 ```bash
@@ -232,6 +258,21 @@ Deployment steps:
 - `add_instances`
 - `bootstrap_router` (skipped when `bootstrap_router=false`)
 - `verify_cluster`
+
+Step skip behavior:
+- `preflight` and `configure_instances` are skipped when `assume_prepared=true`
+- `bootstrap_router` is skipped when `bootstrap_router=false`
+
+Common errors and fixes:
+- `invalid request body: request body is required`
+  - Cause: empty POST body (`EOF`).
+  - Fix: send raw JSON body with `Content-Type: application/json`.
+- `Shell.connect: Host '<ip>' is not allowed to connect to this MySQL server`
+  - Cause: missing MySQL account host grant for `clusteradmin` (or root).
+  - Fix: create/grant user on each node (`'clusteradmin'@'%'`) and `FLUSH PRIVILEGES`.
+- `Invalid host/IP 'ubuntu-server' resolves to '127.0.1.1'`
+  - Cause: MySQL instance identity uses loopback-resolving hostname.
+  - Fix: set `report_host` to node IP in MySQL config and restart MySQL (handled by current deploy playbook when `configure_instances` runs).
 
 ## Security Notes
 - Optional API key auth middleware (`X-API-Key`).

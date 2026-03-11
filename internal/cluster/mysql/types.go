@@ -17,6 +17,7 @@ type DeployRequest struct {
 	ClusterName          string   `json:"cluster_name"`
 	PrimaryIP            string   `json:"primary_ip"`
 	SecondaryIPs         []string `json:"secondary_ips"`
+	AssumePrepared       bool     `json:"assume_prepared"`
 	BootstrapRouter      bool     `json:"bootstrap_router"`
 	SSHUser              string   `json:"ssh_user"`
 	SSHPassword          string   `json:"ssh_password"`
@@ -66,6 +67,7 @@ type StoredSpec struct {
 	ClusterName          string   `json:"cluster_name"`
 	PrimaryIP            string   `json:"primary_ip"`
 	SecondaryIPs         []string `json:"secondary_ips"`
+	AssumePrepared       bool     `json:"assume_prepared"`
 	BootstrapRouter      bool     `json:"bootstrap_router"`
 	SSHUser              string   `json:"ssh_user"`
 	SSHPort              int      `json:"ssh_port"`

@@ -38,23 +38,26 @@
     - name: Dissolve InnoDB cluster if exists
       ansible.builtin.shell: |
         set -euo pipefail
-        cat >/tmp/rollback_cluster.js <<'JS'
-        shell.connect("{{ cluster_admin_username }}@{{ primary_ip }}:{{ mysql_port }}", "{{ cluster_admin_password }}");
-        try {
-          var cluster = dba.getCluster("{{ cluster_name }}");
-          cluster.dissolve({force: true});
-          print("cluster dissolved");
-        } catch (e) {
-          var message = String(e).toLowerCase();
-          if (message.indexOf("does not exist") >= 0 || message.indexOf("unknown cluster") >= 0) {
-            print("cluster already absent");
-          } else {
-            throw e;
-          }
-        }
-        JS
-        mysqlsh --js --file /tmp/rollback_cluster.js
-        rm -f /tmp/rollback_cluster.js
+        cat >/tmp/rollback_cluster.py <<'PY'
+        shell.connect({
+          "user": {{ cluster_admin_username | to_json }},
+          "host": {{ primary_ip | to_json }},
+          "port": {{ mysql_port }},
+          "password": {{ cluster_admin_password | to_json }}
+        })
+        try:
+          cluster = dba.get_cluster({{ cluster_name | to_json }})
+          cluster.dissolve({"force": True})
+          print("cluster dissolved")
+        except Exception as e:
+          message = str(e).lower()
+          if "does not exist" in message or "unknown cluster" in message:
+            print("cluster already absent")
+          else:
+            raise
+        PY
+        mysqlsh --py --file /tmp/rollback_cluster.py
+        rm -f /tmp/rollback_cluster.py
       args:
         executable: /bin/bash
       register: rollback_cluster
