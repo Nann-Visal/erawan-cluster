@@ -1,0 +1,200 @@
+---
+- name: Preflight checks
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Ensure mysqlsh is installed
+      ansible.builtin.command: command -v mysqlsh
+      register: mysqlsh_check
+      changed_when: false
+      failed_when: mysqlsh_check.rc != 0
+      tags: ["preflight"]
+
+    - name: Verify MySQL root connectivity
+      ansible.builtin.command:
+        argv:
+          - mysqladmin
+          - ping
+          - -h
+          - "{{ ansible_host }}"
+          - -P
+          - "{{ mysql_port | string }}"
+          - -u
+          - root
+          - "-p{{ root_password }}"
+      register: mysql_ping
+      changed_when: false
+      failed_when: mysql_ping.rc != 0
+      tags: ["preflight"]
+
+    - name: Configure instance for InnoDB cluster
+      ansible.builtin.command:
+        argv:
+          - mysqlsh
+          - --js
+          - -e
+          - >-
+            dba.configureInstance('root@{{ ansible_host }}:{{ mysql_port }}',
+            {password: {{ root_password | to_json }},
+            clusterAdmin: {{ cluster_admin_username | to_json }},
+            clusterAdminPassword: {{ cluster_admin_password | to_json }},
+            restart: true})
+      register: configure_instance
+      changed_when: true
+      tags: ["configure_instances"]
+
+- name: Cluster lifecycle on primary
+  hosts: mysql_primary
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Ensure cluster exists
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cat >/tmp/create_cluster.js <<'JS'
+        shell.connect("{{ cluster_admin_username }}@{{ primary_ip }}:{{ mysql_port }}", "{{ cluster_admin_password }}");
+        try {
+          dba.getCluster("{{ cluster_name }}");
+          print("cluster already exists");
+        } catch (e) {
+          dba.createCluster("{{ cluster_name }}", {multiPrimary: false});
+          print("cluster created");
+        }
+        JS
+        mysqlsh --js --file /tmp/create_cluster.js
+        rm -f /tmp/create_cluster.js
+      args:
+        executable: /bin/bash
+      register: create_cluster
+      changed_when: "'cluster created' in create_cluster.stdout"
+      tags: ["create_cluster"]
+
+    - name: Add secondary instances to cluster
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cat >/tmp/add_instances.js <<'JS'
+        shell.connect("{{ cluster_admin_username }}@{{ primary_ip }}:{{ mysql_port }}", "{{ cluster_admin_password }}");
+        var cluster = dba.getCluster("{{ cluster_name }}");
+        var hosts = {{ secondary_ips | to_json }};
+
+        for (var i = 0; i < hosts.length; i++) {
+          var host = hosts[i];
+          var endpoint = "{{ cluster_admin_username }}@" + host + ":{{ mysql_port }}";
+          try {
+            cluster.addInstance(endpoint, {
+              password: "{{ cluster_admin_password }}",
+              recoveryMethod: "clone"
+            });
+            print("added " + host);
+          } catch (e) {
+            var message = String(e).toLowerCase();
+            if (message.indexOf("already") >= 0) {
+              print("already in cluster " + host);
+            } else {
+              throw e;
+            }
+          }
+        }
+        JS
+        mysqlsh --js --file /tmp/add_instances.js
+        rm -f /tmp/add_instances.js
+      args:
+        executable: /bin/bash
+      register: add_instances
+      changed_when: "'added ' in add_instances.stdout"
+      tags: ["add_instances"]
+
+    - name: Verify cluster status
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cat >/tmp/verify_cluster.js <<'JS'
+        shell.connect("{{ cluster_admin_username }}@{{ primary_ip }}:{{ mysql_port }}", "{{ cluster_admin_password }}");
+        var cluster = dba.getCluster("{{ cluster_name }}");
+        print(JSON.stringify(cluster.status(), null, 2));
+        JS
+        mysqlsh --js --file /tmp/verify_cluster.js
+        rm -f /tmp/verify_cluster.js
+      args:
+        executable: /bin/bash
+      register: verify_cluster
+      changed_when: false
+      tags: ["verify_cluster"]
+
+- name: Bootstrap mysqlrouter on all nodes
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Ensure mysqlrouter user exists
+      ansible.builtin.user:
+        name: mysqlrouter
+        system: true
+        shell: /usr/sbin/nologin
+      tags: ["bootstrap_router"]
+
+    - name: Create mysqlrouter directory
+      ansible.builtin.file:
+        path: "/etc/mysqlrouter/{{ cluster_name }}"
+        state: directory
+        owner: mysqlrouter
+        group: mysqlrouter
+        mode: "0755"
+      tags: ["bootstrap_router"]
+
+    - name: Bootstrap mysqlrouter
+      ansible.builtin.command:
+        argv:
+          - mysqlrouter
+          - --bootstrap
+          - "{{ cluster_admin_username }}@{{ primary_ip }}:{{ mysql_port }}"
+          - --account
+          - "{{ cluster_admin_username }}"
+          - --account-create
+          - never
+          - --conf-use-gr-notifications
+          - --conf-base-port
+          - "{{ router_base_port | string }}"
+          - --directory
+          - "/etc/mysqlrouter/{{ cluster_name }}"
+          - --force
+          - --user=mysqlrouter
+      environment:
+        MYSQL_PWD: "{{ cluster_admin_password }}"
+      register: bootstrap_router_result
+      changed_when: bootstrap_router_result.rc == 0
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    - name: Install mysqlrouter systemd service
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ router_service_name }}.service"
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=MySQL Router for {{ cluster_name }}
+          After=network.target mysql.service
+          Wants=network.target
+
+          [Service]
+          Type=simple
+          User=mysqlrouter
+          Group=mysqlrouter
+          ExecStart=/usr/bin/mysqlrouter -c /etc/mysqlrouter/{{ cluster_name }}/mysqlrouter.conf
+          Restart=always
+          RestartSec=5
+          LimitNOFILE=65535
+
+          [Install]
+          WantedBy=multi-user.target
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    - name: Enable and restart mysqlrouter service
+      ansible.builtin.systemd:
+        name: "{{ router_service_name }}"
+        daemon_reload: true
+        enabled: true
+        state: restarted
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]

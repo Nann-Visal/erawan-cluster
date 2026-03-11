@@ -1,167 +1,140 @@
 {
   "info": {
-    "name": "HAProxy Config REST API",
+    "name": "Erawan Cluster API (Go)",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Manage HAProxy configs per port with create, delete, list and health endpoints"
+    "description": "Go API collection for HAProxy and MySQL cluster automation"
   },
   "variable": [
-    {
-      "key": "API_HOST",
-      "value": "http://127.0.0.1"
-    },
-    {
-      "key": "API_PORT",
-      "value": "8080"
-    }
+    { "key": "API_HOST", "value": "http://127.0.0.1" },
+    { "key": "API_PORT", "value": "8080" },
+    { "key": "API_KEY", "value": "" },
+    { "key": "JOB_ID", "value": "" }
   ],
   "item": [
     {
       "name": "Health",
-      "item": [
-        {
-          "name": "Health Check",
-          "request": {
-            "method": "GET",
-            "url": "{{API_HOST}}:{{API_PORT}}/health"
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
-                  "pm.test('Response is ok', () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json.status).to.eql('ok');",
-                  "});"
-                ]
-              }
-            }
-          ]
-        }
-      ]
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
+        ],
+        "url": "{{API_HOST}}:{{API_PORT}}/health"
+      }
     },
     {
-      "name": "HAProxy / Configs",
-      "item": [
-        {
-          "name": "List Configs",
-          "request": {
-            "method": "GET",
-            "url": "{{API_HOST}}:{{API_PORT}}/haproxy/configs"
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
-                  "pm.test('Data is array', () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json.status).to.eql('ok');",
-                  "    pm.expect(json.data).to.be.an('array');",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Create Config",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
-            "url": "{{API_HOST}}:{{API_PORT}}/haproxy/config",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"port\": 25010,\n  \"node_ip\": \"10.10.107.182\"\n}"
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
-                  "pm.test('Config created', () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json.status).to.eql('ok');",
-                  "    pm.expect(json.message).to.include('created');",
-                  "});",
-                  "// Save port for use in delete test",
-                  "pm.collectionVariables.set('last_port', 25010);"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Delete Config",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
-            "url": "{{API_HOST}}:{{API_PORT}}/haproxy/config",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"port\": 25010\n}"
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
-                  "pm.test('Config deleted', () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json.status).to.eql('ok');",
-                  "    pm.expect(json.message).to.include('deleted');",
-                  "});",
-                  "pm.test('Not found returns 404', () => {",
-                  "    if (pm.response.code === 404) {",
-                  "        const json = pm.response.json();",
-                  "        pm.expect(json.status).to.eql('error');",
-                  "    }",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Delete Config (Not Found)",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
-            "url": "{{API_HOST}}:{{API_PORT}}/haproxy/config",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"port\": 99999\n}"
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Returns 404 for missing config', () => {",
-                  "    pm.response.to.have.status(404);",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json.status).to.eql('error');",
-                  "    pm.expect(json.message).to.include('No config found');",
-                  "});"
-                ]
-              }
-            }
-          ]
+      "name": "HAProxy Create Config",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
+        ],
+        "url": "{{API_HOST}}:{{API_PORT}}/haproxy/config",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"port\": 25010,\n  \"node_ips\": [\"10.10.107.182\", \"10.10.107.183\"],\n  \"db_port\": 6446\n}"
         }
-      ]
+      }
+    },
+    {
+      "name": "HAProxy Delete Config",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
+        ],
+        "url": "{{API_HOST}}:{{API_PORT}}/haproxy/config",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"port\": 25010\n}"
+        }
+      }
+    },
+    {
+      "name": "HAProxy List Configs",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
+        ],
+        "url": "{{API_HOST}}:{{API_PORT}}/haproxy/configs"
+      }
+    },
+    {
+      "name": "HAProxy Reload",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
+        ],
+        "url": "{{API_HOST}}:{{API_PORT}}/haproxy/reload"
+      }
+    },
+    {
+      "name": "MySQL Deploy",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
+        ],
+        "url": "{{API_HOST}}:{{API_PORT}}/cluster/mysql/deploy",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"root_password\": \"RootPass#2026\",\n  \"cluster_admin_username\": \"clusteradmin\",\n  \"cluster_admin_password\": \"ClusterAdmin#2026\",\n  \"cluster_name\": \"sambar6Cluster\",\n  \"primary_ip\": \"192.168.122.154\",\n  \"secondary_ips\": [\"192.168.122.111\"],\n  \"bootstrap_router\": true,\n  \"ssh_user\": \"root\",\n  \"ssh_password\": \"password\",\n  \"ssh_port\": 22\n}"
+        }
+      }
+    },
+    {
+      "name": "MySQL List Jobs",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
+        ],
+        "url": "{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs?limit=20"
+      }
+    },
+    {
+      "name": "MySQL Get Job",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
+        ],
+        "url": "{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs/{{JOB_ID}}"
+      }
+    },
+    {
+      "name": "MySQL Resume Job",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
+        ],
+        "url": "{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs/{{JOB_ID}}/resume",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"root_password\": \"RootPass#2026\",\n  \"cluster_admin_password\": \"ClusterAdmin#2026\",\n  \"ssh_password\": \"password\"\n}"
+        }
+      }
+    },
+    {
+      "name": "MySQL Rollback Job",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
+        ],
+        "url": "{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs/{{JOB_ID}}/rollback",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"root_password\": \"RootPass#2026\",\n  \"cluster_admin_password\": \"ClusterAdmin#2026\",\n  \"ssh_password\": \"password\"\n}"
+        }
+      }
     }
   ]
 }

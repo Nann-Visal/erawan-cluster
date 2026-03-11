@@ -76,36 +76,36 @@ sudo systemctl enable mysql
 
 Run this from any node or proxy that has network access to all DB nodes. This script uses MySQL Shell to prepare each instance for cluster membership by setting required configuration and creating a dedicated cluster admin user.
 
-Create `configure-cluster.py`:
+Create `configure-cluster.js`:
 
 ```bash
-sudo tee configure-cluster.py >/dev/null <<'EOF'
+sudo tee configure-cluster.js >/dev/null <<'EOF'
 rootPass = "RootPass#2026"
 clusterAdmin = "clusteradmin"
 clusterAdminPass = "ClusterAdmin#2026"
 
-dba.configure_instance("root@10.10.10.1:3306", {
+dba.configureInstance("root@10.10.10.1:3306", {
     "password": rootPass,
     "clusterAdmin": clusterAdmin,
     "clusterAdminPassword": clusterAdminPass,
     "restart": True
 })
 
-dba.configure_instance("root@10.10.10.2:3306", {
+dba.configureInstance("root@10.10.10.2:3306", {
     "password": rootPass,
     "clusterAdmin": clusterAdmin,
     "clusterAdminPassword": clusterAdminPass,
     "restart": True
 })
 
-dba.configure_instance("root@10.10.10.3:3306", {
+dba.configureInstance("root@10.10.10.3:3306", {
     "password": rootPass,
     "clusterAdmin": clusterAdmin,
     "clusterAdminPassword": clusterAdminPass,
     "restart": True
 })
 
-dba.configure_instance("root@10.10.10.n:3306", {
+dba.configureInstance("root@10.10.10.n:3306", {
     "password": rootPass,
     "clusterAdmin": clusterAdmin,
     "clusterAdminPassword": clusterAdminPass,
@@ -114,7 +114,7 @@ dba.configure_instance("root@10.10.10.n:3306", {
 
 EOF
 
-mysqlsh --py --file configure-cluster.py
+mysqlsh --js --file configure-cluster.js
 ```
 
 ---
@@ -123,10 +123,10 @@ mysqlsh --py --file configure-cluster.py
 
 Connect to the first node (which becomes the initial primary), create the cluster, then add all remaining nodes using `clone` as the recovery method for automatic data synchronization.
 
-Create `create-cluster.py`:
+Create `create-cluster.js`:
 
 ```bash
-sudo tee create-cluster.py >/dev/null <<'EOF'
+sudo tee create-cluster.js >/dev/null <<'EOF'
 clusterAdmin = "clusteradmin"
 clusterAdminPass = "ClusterAdmin#2026"
 
@@ -134,24 +134,24 @@ clusterAdminPass = "ClusterAdmin#2026"
 shell.connect(f"{clusterAdmin}@10.10.10.1:3306", clusterAdminPass)
 
 # Create cluster
-cluster = dba.create_cluster("nameOfCluster", {
+cluster = dba.createCluster("nameOfCluster", {
     "multiPrimary": False
 })
 
 # Add second node
-cluster.add_instance("clusteradmin@10.10.10.2:3306", {
+cluster.addInstance("clusteradmin@10.10.10.2:3306", {
     "password": clusterAdminPass,
     "recoveryMethod": "clone"
 })
 
 # Add third node
-cluster.add_instance("clusteradmin@10.10.10.3:3306", {
+cluster.addInstance("clusteradmin@10.10.10.3:3306", {
     "password": clusterAdminPass,
     "recoveryMethod": "clone"
 })
 
 # Add n node
-cluster.add_instance("clusteradmin@10.10.10.n:3306", {
+cluster.addInstance("clusteradmin@10.10.10.n:3306", {
     "password": clusterAdminPass,
     "recoveryMethod": "clone"
 })
@@ -162,7 +162,7 @@ print(json.dumps(cluster.status(), indent=2))
 
 EOF
 
-mysqlsh --py --file create-cluster.py
+mysqlsh --js --file create-cluster.js
 ```
 
 ---
@@ -230,7 +230,7 @@ sudo systemctl status mysqlrouter-prod
 
 ## Step 9 — Configure HAProxy to Point to Router Ports
 
-On the HAProxy node, create a configuration block per tenant/port under `/var/lib/proxy-api/tenants/{port}.cfg`. HAProxy load-balances incoming connections across all Router instances using `leastconn` and performs TCP health checks.
+On the HAProxy node, create a configuration block per tenant/port under `/var/lib/erawan-cluster/tenants/{port}.cfg`. HAProxy load-balances incoming connections across all Router instances using `leastconn` and performs TCP health checks.
 
 ```bash
 listen mysql_{port}
@@ -242,7 +242,7 @@ listen mysql_{port}
     server db3 10.10.10.3:6447 check inter 2s fall 3 rise 2
     server dbn 10.10.10.n:6447 check inter 2s fall 3 rise 2
 
-sudo haproxy -c -f /var/lib/proxy-api/tenants/{port}.cfg
+sudo haproxy -c -f /var/lib/erawan-cluster/tenants/{port}.cfg
 sudo systemctl enable haproxy
 sudo systemctl restart haproxy
 sudo systemctl status haproxy
@@ -260,8 +260,8 @@ Use this script to query the live cluster status at any time via MySQL Shell. Th
 #!/usr/bin/env bash
 set -euo pipefail
 
-mysqlsh --py -u clusteradmin -h 10.10.189.18 -P 3306 -p -e \
-"import json; print(json.dumps(dba.get_cluster('prodCluster').status(), indent=2))"
+mysqlsh --js -u clusteradmin -h 10.10.189.18 -P 3306 -p -e \
+"import json; print(json.dumps(dba.getCluster('prodCluster').status(), indent=2))"
 
 chmod +x cluster-status.sh
 ./cluster-status.sh
