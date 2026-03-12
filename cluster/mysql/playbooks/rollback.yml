@@ -39,19 +39,44 @@
       ansible.builtin.shell: |
         set -euo pipefail
         cat >/tmp/rollback_cluster.py <<'PY'
-        shell.connect({
-          "user": {{ cluster_admin_username | to_json }},
-          "host": {{ primary_ip | to_json }},
-          "port": {{ mysql_port }},
-          "password": {{ cluster_admin_password | to_json }}
-        })
+        primary_host = {{ primary_ip | to_json }}
+        primary_port = {{ mysql_port }}
+        cluster_name = {{ cluster_name | to_json }}
+        cluster_admin_username = {{ cluster_admin_username | to_json }}
+        cluster_admin_password = {{ cluster_admin_password | to_json }}
+        root_password = {{ root_password | default("", true) | to_json }}
+
+        connected = False
         try:
-          cluster = dba.get_cluster({{ cluster_name | to_json }})
+          shell.connect({
+            "user": cluster_admin_username,
+            "host": primary_host,
+            "port": primary_port,
+            "password": cluster_admin_password
+          })
+          connected = True
+        except Exception:
+          if root_password:
+            shell.connect({
+              "user": "root",
+              "host": primary_host,
+              "port": primary_port,
+              "password": root_password
+            })
+            connected = True
+          else:
+            raise
+
+        if not connected:
+          raise RuntimeError("unable to connect to primary for cluster dissolve")
+
+        try:
+          cluster = dba.get_cluster(cluster_name)
           cluster.dissolve({"force": True})
           print("cluster dissolved")
         except Exception as e:
           message = str(e).lower()
-          if "does not exist" in message or "unknown cluster" in message:
+          if "does not exist" in message or "unknown cluster" in message or "standalone instance" in message:
             print("cluster already absent")
           else:
             raise

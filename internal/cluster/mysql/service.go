@@ -52,7 +52,7 @@ func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 			PrimaryIP:            req.PrimaryIP,
 			SecondaryIPs:         req.SecondaryIPs,
 			AssumePrepared:       req.AssumePrepared,
-			BootstrapRouter:      req.BootstrapRouter,
+			BootstrapRouter:      req.BootstrapRouterEnabled(),
 			SSHUser:              req.SSHUser,
 			SSHPort:              req.SSHPort,
 			MySQLPort:            req.MySQLPort,

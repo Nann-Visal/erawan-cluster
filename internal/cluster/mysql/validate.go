@@ -88,8 +88,8 @@ func ValidateResumeSecrets(req ResumeRequest) (SecretInput, error) {
 		ClusterAdminPassword: strings.TrimSpace(req.ClusterAdminPassword),
 		SSHPassword:          strings.TrimSpace(req.SSHPassword),
 	}
-	if secret.ClusterAdminPassword == "" || secret.SSHPassword == "" {
-		return SecretInput{}, fmt.Errorf("cluster_admin_password and ssh_password are required")
+	if secret.RootPassword == "" || secret.ClusterAdminPassword == "" || secret.SSHPassword == "" {
+		return SecretInput{}, fmt.Errorf("root_password, cluster_admin_password, and ssh_password are required")
 	}
 	return secret, nil
 }
@@ -100,8 +100,8 @@ func ValidateRollbackSecrets(req RollbackRequest) (SecretInput, error) {
 		ClusterAdminPassword: strings.TrimSpace(req.ClusterAdminPassword),
 		SSHPassword:          strings.TrimSpace(req.SSHPassword),
 	}
-	if secret.ClusterAdminPassword == "" || secret.SSHPassword == "" {
-		return SecretInput{}, fmt.Errorf("cluster_admin_password and ssh_password are required")
+	if secret.RootPassword == "" || secret.ClusterAdminPassword == "" || secret.SSHPassword == "" {
+		return SecretInput{}, fmt.Errorf("root_password, cluster_admin_password, and ssh_password are required")
 	}
 	return secret, nil
 }

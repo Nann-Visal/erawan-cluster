@@ -18,13 +18,20 @@ type DeployRequest struct {
 	PrimaryIP            string   `json:"primary_ip"`
 	SecondaryIPs         []string `json:"secondary_ips"`
 	AssumePrepared       bool     `json:"assume_prepared"`
-	BootstrapRouter      bool     `json:"bootstrap_router"`
+	BootstrapRouter      *bool    `json:"bootstrap_router"`
 	SSHUser              string   `json:"ssh_user"`
 	SSHPassword          string   `json:"ssh_password"`
 	SSHPort              int      `json:"ssh_port"`
 	MySQLPort            int      `json:"mysql_port"`
 	RouterBasePort       int      `json:"router_base_port"`
 	StepTimeoutSeconds   int      `json:"step_timeout_seconds"`
+}
+
+func (r DeployRequest) BootstrapRouterEnabled() bool {
+	if r.BootstrapRouter == nil {
+		return true
+	}
+	return *r.BootstrapRouter
 }
 
 type ResumeRequest struct {

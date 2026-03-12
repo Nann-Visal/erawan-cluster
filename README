@@ -202,7 +202,7 @@ curl -X POST http://127.0.0.1:8080/cluster/mysql/deploy \
     "primary_ip": "10.10.10.1",
     "secondary_ips": ["10.10.10.2", "10.10.10.3"],
     "assume_prepared": false,
-    "bootstrap_router": false,
+    "bootstrap_router": true,
     "ssh_user": "root",
     "ssh_password": "password",
     "ssh_port": 22,
@@ -215,7 +215,8 @@ curl -X POST http://127.0.0.1:8080/cluster/mysql/deploy \
 Automation note:
 - Deploy automation now handles `doc/mysql.md` Step 1, 4, 5, 6, 7, 8, and 10 through Ansible.
 - `assume_prepared=true` skips `preflight` and `configure_instances` when nodes are already prepared.
-- For fastest runtime, keep `bootstrap_router=false` and bootstrap router later.
+- `bootstrap_router` defaults to `true` when omitted.
+- Set `bootstrap_router=false` only when you want to skip router bootstrap.
 
 Pre-check checklist (before API deploy):
 1. `root` can connect remotely from API VM to every MySQL node.

@@ -1,14 +1,16 @@
 ---
+# ---------------------------------------------------------------------------
+# PLAY 1 — Preflight checks (serial so failures are clear per-host)
+# ---------------------------------------------------------------------------
 - name: Preflight checks
   hosts: all
   gather_facts: false
   become: true
+  serial: 1
   tasks:
     - name: Ensure mysqlsh is installed
       ansible.builtin.command:
-        argv:
-          - mysqlsh
-          - --version
+        argv: [mysqlsh, --version]
       register: mysqlsh_check
       changed_when: false
       failed_when: mysqlsh_check.rc != 0
@@ -32,6 +34,24 @@
       failed_when: mysql_ping.rc != 0
       tags: ["preflight"]
 
+    - name: Ensure mysqlrouter is installed when bootstrap is enabled
+      ansible.builtin.command:
+        argv: [mysqlrouter, --version]
+      register: mysqlrouter_check
+      changed_when: false
+      failed_when: mysqlrouter_check.rc != 0
+      when: bootstrap_router | bool
+      tags: ["preflight", "bootstrap_router"]
+
+# ---------------------------------------------------------------------------
+# PLAY 2 — Configure all instances
+# ---------------------------------------------------------------------------
+- name: Configure instances
+  hosts: all
+  gather_facts: false
+  become: true
+  serial: 1
+  tasks:
     - name: Ensure cluster host entries in /etc/hosts
       ansible.builtin.blockinfile:
         path: /etc/hosts
@@ -43,6 +63,11 @@
           {% endfor %}
       tags: ["configure_instances", "prepare_hosts"]
 
+    - name: Derive deterministic unique server_id per host
+      ansible.builtin.set_fact:
+        erawan_server_id: "{{ (groups['all'] | list).index(inventory_hostname) + 1 }}"
+      tags: ["configure_instances", "configure_mysql"]
+
     - name: Ensure minimal MySQL config for InnoDB Cluster
       ansible.builtin.copy:
         dest: /etc/mysql/mysql.conf.d/99-erawan-cluster.cnf
@@ -52,6 +77,13 @@
           bind-address = 0.0.0.0
           report_host = {{ ansible_host }}
           mysqlx-bind-address = 0.0.0.0
+          server_id = {{ erawan_server_id }}
+          enforce_gtid_consistency = ON
+          gtid_mode = ON
+          binlog_transaction_dependency_tracking = WRITESET
+          log_bin = mysql-bin
+          binlog_format = ROW
+          transaction_write_set_extraction = XXHASH64
       register: mysql_cluster_config
       tags: ["configure_instances", "configure_mysql"]
 
@@ -62,7 +94,7 @@
       when: mysql_cluster_config.changed
       tags: ["configure_instances", "configure_mysql"]
 
-    - name: Wait for MySQL to come back
+    - name: Wait for MySQL to come back after restart
       ansible.builtin.wait_for:
         host: "{{ ansible_host }}"
         port: "{{ mysql_port }}"
@@ -71,7 +103,7 @@
       when: mysql_cluster_config.changed
       tags: ["configure_instances", "configure_mysql"]
 
-    - name: Configure instance for InnoDB cluster
+    - name: Configure instance for InnoDB Cluster
       ansible.builtin.shell: |
         set -euo pipefail
         cat >/tmp/configure_instance.py <<'PY'
@@ -80,20 +112,24 @@
           "password": {{ root_password | to_json }},
           "clusterAdmin": {{ cluster_admin_username | to_json }},
           "clusterAdminPassword": {{ cluster_admin_password | to_json }},
-          "restart": True
+          "restart": True,
+          "interactive": False
         }
-
         try:
           dba.configure_instance(instance, options)
         except Exception as e:
           msg = str(e)
-          if "clusterAdminPassword is not allowed for an existing account" in msg or "account already exists" in msg:
+          msg_l = msg.lower()
+          if "belongs to an innodb cluster" in msg_l and "clusteradmin option is not allowed" in msg_l:
+            print("instance already belongs to a cluster; skipping configure_instance")
+          elif "clusteradminpassword is not allowed for an existing account" in msg_l or "account already exists" in msg_l:
             options.pop("clusterAdminPassword", None)
             dba.configure_instance(instance, options)
           else:
             raise
         PY
-        mysqlsh --py --file /tmp/configure_instance.py
+        timeout {{ mysqlsh_configure_timeout_seconds | default(600) | int }} \
+          mysqlsh --py --file /tmp/configure_instance.py
         rm -f /tmp/configure_instance.py
       args:
         executable: /bin/bash
@@ -101,6 +137,71 @@
       changed_when: false
       tags: ["configure_instances", "configure_instances_mysqlsh"]
 
+    - name: Normalize cluster admin password and grants
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cat >/tmp/normalize_cluster_admin.py <<'PY'
+        shell.connect({
+          "user": "root",
+          "host": {{ ansible_host | to_json }},
+          "port": {{ mysql_port }},
+          "password": {{ root_password | to_json }}
+        })
+        session = shell.get_session()
+        admin_user = {{ cluster_admin_username | to_json }}
+        admin_pass = {{ cluster_admin_password | to_json }}
+        escaped_user = admin_user.replace("`", "``")
+
+        state_row = session.run_sql(
+          "SELECT @@GLOBAL.super_read_only, @@GLOBAL.read_only"
+        ).fetch_one()
+        super_ro = int(state_row[0]) if state_row and state_row[0] is not None else 0
+        ro       = int(state_row[1]) if state_row and state_row[1] is not None else 0
+        if super_ro == 1 or ro == 1:
+          session.run_sql("SET GLOBAL super_read_only = OFF")
+          session.run_sql("SET GLOBAL read_only = OFF")
+
+        session.run_sql(
+          f"CREATE USER IF NOT EXISTS `{escaped_user}`@'%' IDENTIFIED WITH mysql_native_password BY ?",
+          [admin_pass],
+        )
+        session.run_sql(
+          f"ALTER USER `{escaped_user}`@'%' IDENTIFIED WITH mysql_native_password BY ?",
+          [admin_pass],
+        )
+        session.run_sql(
+          f"GRANT ALL PRIVILEGES ON *.* TO `{escaped_user}`@'%' WITH GRANT OPTION"
+        )
+
+        hosts = session.run_sql(
+          "SELECT host FROM mysql.user WHERE user = ?", [admin_user]
+        ).fetch_all()
+        for row in hosts:
+          host = row[0]
+          if host == "%":
+            continue
+          escaped_host = str(host).replace("\\", "\\\\").replace("'", "''")
+          session.run_sql(
+            f"ALTER USER `{escaped_user}`@'{escaped_host}' IDENTIFIED WITH mysql_native_password BY ?",
+            [admin_pass],
+          )
+          session.run_sql(
+            f"GRANT ALL PRIVILEGES ON *.* TO `{escaped_user}`@'{escaped_host}' WITH GRANT OPTION"
+          )
+        session.run_sql("FLUSH PRIVILEGES")
+        PY
+        timeout {{ mysqlsh_normalize_timeout_seconds | default(180) | int }} \
+          mysqlsh --py --file /tmp/normalize_cluster_admin.py
+        rm -f /tmp/normalize_cluster_admin.py
+      args:
+        executable: /bin/bash
+      register: normalize_cluster_admin
+      changed_when: false
+      tags: ["configure_instances", "configure_instances_mysqlsh"]
+
+# ---------------------------------------------------------------------------
+# PLAY 3 — Cluster lifecycle on primary
+# ---------------------------------------------------------------------------
 - name: Cluster lifecycle on primary
   hosts: mysql_primary
   gather_facts: false
@@ -142,22 +243,16 @@
           "password": {{ cluster_admin_password | to_json }}
         })
         cluster = dba.get_cluster({{ cluster_name | to_json }})
-        hosts = {{ secondary_ips | to_json }}
-        cluster_admin_username = {{ cluster_admin_username | to_json }}
-        mysql_port = {{ mysql_port }}
-        cluster_admin_password = {{ cluster_admin_password | to_json }}
-
-        for host in hosts:
-          endpoint = f"{cluster_admin_username}@{host}:{mysql_port}"
+        for host in {{ secondary_ips | to_json }}:
+          endpoint = f"{{ cluster_admin_username }}@{host}:{{ mysql_port }}"
           try:
             cluster.add_instance(endpoint, {
-              "password": cluster_admin_password,
+              "password": {{ cluster_admin_password | to_json }},
               "recoveryMethod": "clone"
             })
             print("added " + host)
           except Exception as e:
-            message = str(e).lower()
-            if "already" in message:
+            if "already" in str(e).lower():
               print("already in cluster " + host)
             else:
               raise
@@ -175,17 +270,37 @@
         dest: /usr/local/bin/mysql-cluster-status.py
         mode: "0755"
         content: |
-          import json
-          import os
+          import json, os
+          host         = os.environ["PRIMARY_IP"]
+          port         = int(os.environ["MYSQL_PORT"])
+          cluster_name = os.environ["CLUSTER_NAME"]
+          expected     = int(os.environ["EXPECTED_CLUSTER_NODES"])
 
-          shell.connect({
-            "user": os.environ["CLUSTER_ADMIN_USERNAME"],
-            "host": os.environ["PRIMARY_IP"],
-            "port": int(os.environ["MYSQL_PORT"]),
-            "password": os.environ["CLUSTER_ADMIN_PASSWORD"]
-          })
-          cluster = dba.get_cluster(os.environ["CLUSTER_NAME"])
-          print(json.dumps(cluster.status(), indent=2))
+          try:
+            shell.connect({
+              "user": os.environ["CLUSTER_ADMIN_USERNAME"],
+              "host": host, "port": port,
+              "password": os.environ["CLUSTER_ADMIN_PASSWORD"]
+            })
+          except Exception:
+            shell.connect({
+              "user": "root",
+              "host": host, "port": port,
+              "password": os.environ["ROOT_PASSWORD"]
+            })
+
+          cluster   = dba.get_cluster(cluster_name)
+          status    = cluster.status()
+          rs        = status.get("defaultReplicaSet", {})
+          topology  = rs.get("topology", {})
+          rs_status = str(rs.get("status", ""))
+
+          if not rs_status.startswith("OK"):
+            raise RuntimeError(f"cluster status is not healthy: {rs_status}")
+          if len(topology) < expected:
+            raise RuntimeError(f"expected {expected} nodes, got {len(topology)}")
+
+          print(json.dumps(status, indent=2))
       tags: ["verify_cluster", "status_check"]
 
     - name: Verify cluster status
@@ -197,58 +312,261 @@
       environment:
         CLUSTER_ADMIN_USERNAME: "{{ cluster_admin_username }}"
         CLUSTER_ADMIN_PASSWORD: "{{ cluster_admin_password }}"
-        PRIMARY_IP: "{{ primary_ip }}"
-        MYSQL_PORT: "{{ mysql_port | string }}"
-        CLUSTER_NAME: "{{ cluster_name }}"
+        ROOT_PASSWORD:          "{{ root_password }}"
+        PRIMARY_IP:             "{{ primary_ip }}"
+        MYSQL_PORT:             "{{ mysql_port | string }}"
+        CLUSTER_NAME:           "{{ cluster_name }}"
+        EXPECTED_CLUSTER_NODES: "{{ (secondary_ips | length + 1) | string }}"
       register: verify_cluster
       changed_when: false
       tags: ["verify_cluster", "status_check"]
 
+# ---------------------------------------------------------------------------
+# PLAY 4 — Bootstrap MySQL Router on all nodes
+# ---------------------------------------------------------------------------
 - name: Bootstrap mysqlrouter on all nodes
   hosts: all
   gather_facts: false
   become: true
   tasks:
-    - name: Ensure mysqlrouter user exists
+    # -----------------------------------------------------------------------
+    # Step 1: Normalize clusteradmin grants for all possible host identities
+    # -----------------------------------------------------------------------
+    - name: Normalize clusteradmin grants for router bootstrap
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cat >/tmp/router_user_hosts.py <<'PY'
+        shell.connect({
+          "user": "root",
+          "host": {{ primary_ip | to_json }},
+          "port": {{ mysql_port }},
+          "password": {{ root_password | to_json }}
+        })
+        session = shell.get_session()
+        admin_user = {{ cluster_admin_username | to_json }}
+        admin_pass = {{ cluster_admin_password | to_json }}
+        escaped_user = admin_user.replace("`", "``")
+
+        desired = {"%", "localhost", "127.0.0.1", "::1",
+                   "primary", {{ primary_ip | to_json }}}
+        for i in range(1, len({{ secondary_ips | to_json }}) + 1):
+          desired.add(f"secondary_{i}")
+        for ip in {{ secondary_ips | to_json }}:
+          desired.add(str(ip))
+
+        existing = session.run_sql(
+          "SELECT host FROM mysql.user WHERE user = ?", [admin_user]
+        ).fetch_all()
+        for row in existing:
+          if row and row[0] is not None:
+            desired.add(str(row[0]))
+
+        for host in sorted(desired):
+          escaped_host = str(host).replace("\\", "\\\\").replace("'", "''")
+          session.run_sql(
+            f"CREATE USER IF NOT EXISTS `{escaped_user}`@'{escaped_host}' "
+            f"IDENTIFIED WITH mysql_native_password BY ?", [admin_pass]
+          )
+          session.run_sql(
+            f"ALTER USER `{escaped_user}`@'{escaped_host}' "
+            f"IDENTIFIED WITH mysql_native_password BY ?", [admin_pass]
+          )
+          session.run_sql(
+            f"GRANT ALL PRIVILEGES ON *.* TO `{escaped_user}`@'{escaped_host}' "
+            f"WITH GRANT OPTION"
+          )
+        session.run_sql("FLUSH PRIVILEGES")
+        PY
+        timeout 180 mysqlsh --py --file /tmp/router_user_hosts.py
+        rm -f /tmp/router_user_hosts.py
+      args:
+        executable: /bin/bash
+      run_once: true
+      delegate_to: primary
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    # -----------------------------------------------------------------------
+    # Step 2: Clean stale router metadata so --conf-base-port is respected
+    # This is the key fix for ports being assigned at +2 offset (6448/6449)
+    # instead of base port (6446/6447)
+    # -----------------------------------------------------------------------
+    - name: Clean stale router metadata from MySQL cluster
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cat >/tmp/clean_router_metadata.py <<'PY'
+        shell.connect({
+          "user": "root",
+          "host": {{ primary_ip | to_json }},
+          "port": {{ mysql_port }},
+          "password": {{ root_password | to_json }}
+        })
+        session = shell.get_session()
+        try:
+          result = session.run_sql(
+            "SELECT router_id FROM mysql_innodb_cluster_metadata.routers"
+          ).fetch_all()
+          if result:
+            session.run_sql("DELETE FROM mysql_innodb_cluster_metadata.routers")
+            print(f"cleaned {len(result)} stale router metadata entries")
+          else:
+            print("no stale router metadata found")
+        except Exception as e:
+          if "doesn't exist" in str(e).lower() or "unknown table" in str(e).lower():
+            print("metadata table not found - skipping")
+          else:
+            raise
+        PY
+        timeout 60 mysqlsh --py --file /tmp/clean_router_metadata.py
+        rm -f /tmp/clean_router_metadata.py
+      args:
+        executable: /bin/bash
+      run_once: true
+      delegate_to: primary
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    # -----------------------------------------------------------------------
+    # Step 3: Clean up any previous router installation on each node
+    # -----------------------------------------------------------------------
+    - name: Ensure mysqlrouter system user exists
       ansible.builtin.user:
         name: mysqlrouter
         system: true
         shell: /usr/sbin/nologin
+      when: bootstrap_router | bool
       tags: ["bootstrap_router"]
 
-    - name: Create mysqlrouter directory
+    - name: Stop mysqlrouter service if running
+      ansible.builtin.systemd:
+        name: "{{ router_service_name }}"
+        state: stopped
+      failed_when: false
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    - name: Remove stale router directory before bootstrap
+      ansible.builtin.file:
+        path: "/etc/mysqlrouter/{{ cluster_name }}"
+        state: absent
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    - name: Create fresh mysqlrouter directory
       ansible.builtin.file:
         path: "/etc/mysqlrouter/{{ cluster_name }}"
         state: directory
         owner: mysqlrouter
         group: mysqlrouter
         mode: "0755"
-      tags: ["bootstrap_router"]
-
-    - name: Bootstrap mysqlrouter
-      ansible.builtin.command:
-        argv:
-          - mysqlrouter
-          - --bootstrap
-          - "{{ cluster_admin_username }}@{{ primary_ip }}:{{ mysql_port }}"
-          - --account
-          - "{{ cluster_admin_username }}"
-          - --account-create
-          - never
-          - --conf-use-gr-notifications
-          - --conf-base-port
-          - "{{ router_base_port | string }}"
-          - --directory
-          - "/etc/mysqlrouter/{{ cluster_name }}"
-          - --force
-          - --user=mysqlrouter
-      environment:
-        MYSQL_PWD: "{{ cluster_admin_password }}"
-      register: bootstrap_router_result
-      changed_when: bootstrap_router_result.rc == 0
       when: bootstrap_router | bool
       tags: ["bootstrap_router"]
 
+    # -----------------------------------------------------------------------
+    # Step 4: Bootstrap router — no --force so metadata port is always fresh
+    # -----------------------------------------------------------------------
+    - name: Bootstrap mysqlrouter
+      ansible.builtin.shell: |
+        set -euo pipefail
+        root_pw={{ root_password | default("", true) | quote }}
+
+        bootstrap_with_user() {
+          local u="$1" p="$2"
+          printf '%s\n' "$p" | \
+            timeout {{ mysqlrouter_bootstrap_timeout_seconds | default(180) | int }} \
+            mysqlrouter \
+              --bootstrap "${u}@{{ primary_ip }}:{{ mysql_port }}" \
+              --account "{{ cluster_admin_username }}" \
+              --account-create never \
+              --conf-use-gr-notifications \
+              --conf-base-port "{{ router_base_port | string }}" \
+              --directory "/etc/mysqlrouter/{{ cluster_name }}" \
+              --user=mysqlrouter
+        }
+
+        set +e
+        out="$(bootstrap_with_user {{ cluster_admin_username | quote }} {{ cluster_admin_password | quote }} 2>&1)"
+        rc=$?
+        set -e
+
+        if [ "$rc" -eq 0 ]; then
+          echo "$out"; exit 0
+        fi
+
+        echo "$out" >&2
+        if echo "$out" | grep -qi "Access denied for user '{{ cluster_admin_username }}'"; then
+          if [ -n "$root_pw" ]; then
+            bootstrap_with_user "root" "$root_pw"
+            exit 0
+          fi
+        fi
+        exit "$rc"
+      args:
+        executable: /bin/bash
+      register: bootstrap_router_result
+      changed_when: bootstrap_router_result.rc == 0
+      failed_when:  bootstrap_router_result.rc != 0
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    # -----------------------------------------------------------------------
+    # Step 5: Verify and fix config
+    # -----------------------------------------------------------------------
+    - name: Verify mysqlrouter config exists
+      ansible.builtin.stat:
+        path: "/etc/mysqlrouter/{{ cluster_name }}/mysqlrouter.conf"
+      register: mysqlrouter_config
+      failed_when: not mysqlrouter_config.stat.exists
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    - name: Ensure mysqlrouter binds on all interfaces
+      ansible.builtin.replace:
+        path: "/etc/mysqlrouter/{{ cluster_name }}/mysqlrouter.conf"
+        regexp: '^(bind_address\s*=\s*).*$'
+        replace: '\g<1>0.0.0.0'
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    - name: Show assigned router ports for debugging
+      ansible.builtin.shell: |
+        grep -i "bind_port\|bind_address" /etc/mysqlrouter/{{ cluster_name }}/mysqlrouter.conf
+      register: router_ports_debug
+      changed_when: false
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    - name: Print router ports
+      ansible.builtin.debug:
+        msg: "{{ router_ports_debug.stdout_lines }}"
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    - name: Verify router RW port is configured in conf
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -Eq
+          - "^[[:space:]]*bind_port[[:space:]]*=[[:space:]]*{{ router_base_port }}[[:space:]]*$"
+          - "/etc/mysqlrouter/{{ cluster_name }}/mysqlrouter.conf"
+      changed_when: false
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    - name: Verify router RO port is configured in conf
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -Eq
+          - "^[[:space:]]*bind_port[[:space:]]*=[[:space:]]*{{ ((router_base_port | int) + 1) | string }}[[:space:]]*$"
+          - "/etc/mysqlrouter/{{ cluster_name }}/mysqlrouter.conf"
+      changed_when: false
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    # -----------------------------------------------------------------------
+    # Step 6: Install, enable and start service
+    # -----------------------------------------------------------------------
     - name: Install mysqlrouter systemd service
       ansible.builtin.copy:
         dest: "/etc/systemd/system/{{ router_service_name }}.service"
@@ -279,5 +597,56 @@
         daemon_reload: true
         enabled: true
         state: restarted
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    # -----------------------------------------------------------------------
+    # Step 7: Verify ports reachable — use ansible_host (real IP) not 127.0.0.1
+    # -----------------------------------------------------------------------
+    - name: Wait for router RW port reachable from controller
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ router_base_port }}"
+        state: started
+        timeout: 60
+      delegate_to: localhost
+      become: false
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    - name: Wait for router RO port reachable from controller
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ (router_base_port | int) + 1 }}"
+        state: started
+        timeout: 60
+      delegate_to: localhost
+      become: false
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    - name: Verify router RW port reachable on node interface
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ router_base_port }}"
+        state: started
+        timeout: 30
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    - name: Verify router RO port reachable on node interface
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ (router_base_port | int) + 1 }}"
+        state: started
+        timeout: 30
+      when: bootstrap_router | bool
+      tags: ["bootstrap_router"]
+
+    - name: Verify mysqlrouter service is active
+      ansible.builtin.systemd:
+        name: "{{ router_service_name }}"
+        state: started
+      changed_when: false
       when: bootstrap_router | bool
       tags: ["bootstrap_router"]
