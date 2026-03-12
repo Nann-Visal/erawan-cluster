@@ -76,45 +76,42 @@ sudo systemctl enable mysql
 
 Run this from any node or proxy that has network access to all DB nodes. This script uses MySQL Shell to prepare each instance for cluster membership by setting required configuration and creating a dedicated cluster admin user.
 
-Create `configure-cluster.js`:
+Create `configure-cluster.py`:
 
 ```bash
-sudo tee configure-cluster.js >/dev/null <<'EOF'
-rootPass = "RootPass#2026"
-clusterAdmin = "clusteradmin"
-clusterAdminPass = "ClusterAdmin#2026"
+sudo tee configure-cluster.py >/dev/null <<'EOF'
+root_pass = "RootPass#2026"
+cluster_admin = "clusteradmin"
+cluster_admin_pass = "ClusterAdmin#2026"
 
-dba.configureInstance("root@10.10.10.1:3306", {
-    "password": rootPass,
-    "clusterAdmin": clusterAdmin,
-    "clusterAdminPassword": clusterAdminPass,
-    "restart": True
-})
+instances = [
+    "10.10.10.1",
+    "10.10.10.2",
+    "10.10.10.3",
+    "10.10.10.n",
+]
 
-dba.configureInstance("root@10.10.10.2:3306", {
-    "password": rootPass,
-    "clusterAdmin": clusterAdmin,
-    "clusterAdminPassword": clusterAdminPass,
-    "restart": True
-})
-
-dba.configureInstance("root@10.10.10.3:3306", {
-    "password": rootPass,
-    "clusterAdmin": clusterAdmin,
-    "clusterAdminPassword": clusterAdminPass,
-    "restart": True
-})
-
-dba.configureInstance("root@10.10.10.n:3306", {
-    "password": rootPass,
-    "clusterAdmin": clusterAdmin,
-    "clusterAdminPassword": clusterAdminPass,
-    "restart": True
-})
+for host in instances:
+    instance = f"root@{host}:3306"
+    options = {
+        "password": root_pass,
+        "clusterAdmin": cluster_admin,
+        "clusterAdminPassword": cluster_admin_pass,
+        "restart": True,
+    }
+    try:
+        dba.configure_instance(instance, options)
+    except Exception as e:
+        msg = str(e)
+        if "clusterAdminPassword is not allowed for an existing account" in msg or "account already exists" in msg:
+            options.pop("clusterAdminPassword", None)
+            dba.configure_instance(instance, options)
+        else:
+            raise
 
 EOF
 
-mysqlsh --js --file configure-cluster.js
+mysqlsh --py --file configure-cluster.py
 ```
 
 ---

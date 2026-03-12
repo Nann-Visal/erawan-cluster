@@ -92,7 +92,7 @@
         "url": "{{API_HOST}}:{{API_PORT}}/cluster/mysql/deploy",
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"root_password\": \"RootPass#2026\",\n  \"cluster_admin_username\": \"clusteradmin\",\n  \"cluster_admin_password\": \"ClusterAdmin#2026\",\n  \"cluster_name\": \"sambar6Cluster\",\n  \"primary_ip\": \"192.168.122.154\",\n  \"secondary_ips\": [\"192.168.122.111\"],\n  \"assume_prepared\": true,\n  \"bootstrap_router\": true,\n  \"ssh_user\": \"root\",\n  \"ssh_password\": \"password\",\n  \"ssh_port\": 22,\n  \"mysql_port\": 3306,\n  \"router_base_port\": 6446,\n  \"step_timeout_seconds\": 900\n}"
+          "raw": "{\n  \"root_password\": \"RootPass#2026\",\n  \"cluster_admin_username\": \"clusteradmin\",\n  \"cluster_admin_password\": \"ClusterAdmin#2026\",\n  \"cluster_name\": \"sambar6Cluster\",\n  \"primary_ip\": \"192.168.122.154\",\n  \"secondary_ips\": [\"192.168.122.111\"],\n  \"assume_prepared\": false,\n  \"bootstrap_router\": true,\n  \"ssh_user\": \"root\",\n  \"ssh_password\": \"password\",\n  \"ssh_port\": 22,\n  \"mysql_port\": 3306,\n  \"router_base_port\": 6446,\n  \"step_timeout_seconds\": 900\n}"
         }
       }
     },
@@ -127,7 +127,7 @@
         "url": "{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs/{{JOB_ID}}/resume",
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"root_password\": \"RootPass#2026\",\n  \"cluster_admin_password\": \"ClusterAdmin#2026\",\n  \"ssh_password\": \"password\"\n}"
+          "raw": "{\n  \"cluster_admin_password\": \"ClusterAdmin#2026\",\n  \"ssh_password\": \"password\"\n}"
         }
       }
     },
@@ -142,7 +142,7 @@
         "url": "{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs/{{JOB_ID}}/rollback",
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"root_password\": \"RootPass#2026\",\n  \"cluster_admin_password\": \"ClusterAdmin#2026\",\n  \"ssh_password\": \"password\"\n}"
+          "raw": "{\n  \"cluster_admin_password\": \"ClusterAdmin#2026\",\n  \"ssh_password\": \"password\"\n}"
         }
       }
     }

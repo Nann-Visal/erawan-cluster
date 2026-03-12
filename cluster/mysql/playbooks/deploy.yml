@@ -25,28 +25,42 @@
           - "{{ mysql_port | string }}"
           - -u
           - root
-          - "-p{{ root_password }}"
+      environment:
+        MYSQL_PWD: "{{ root_password }}"
       register: mysql_ping
       changed_when: false
       failed_when: mysql_ping.rc != 0
       tags: ["preflight"]
 
-    - name: Ensure report_host is configured in MySQL
+    - name: Ensure cluster host entries in /etc/hosts
+      ansible.builtin.blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} ERAWAN MYSQL CLUSTER"
+        block: |
+          {{ primary_ip }} primary
+          {% for ip in secondary_ips %}
+          {{ ip }} secondary_{{ loop.index }}
+          {% endfor %}
+      tags: ["configure_instances", "prepare_hosts"]
+
+    - name: Ensure minimal MySQL config for InnoDB Cluster
       ansible.builtin.copy:
         dest: /etc/mysql/mysql.conf.d/99-erawan-cluster.cnf
         mode: "0644"
         content: |
           [mysqld]
+          bind-address = 0.0.0.0
           report_host = {{ ansible_host }}
-      register: report_host_config
-      tags: ["configure_instances"]
+          mysqlx-bind-address = 0.0.0.0
+      register: mysql_cluster_config
+      tags: ["configure_instances", "configure_mysql"]
 
-    - name: Restart MySQL when report_host config changed
+    - name: Restart MySQL when config changed
       ansible.builtin.systemd:
         name: mysql
         state: restarted
-      when: report_host_config.changed
-      tags: ["configure_instances"]
+      when: mysql_cluster_config.changed
+      tags: ["configure_instances", "configure_mysql"]
 
     - name: Wait for MySQL to come back
       ansible.builtin.wait_for:
@@ -54,8 +68,8 @@
         port: "{{ mysql_port }}"
         state: started
         timeout: 120
-      when: report_host_config.changed
-      tags: ["configure_instances"]
+      when: mysql_cluster_config.changed
+      tags: ["configure_instances", "configure_mysql"]
 
     - name: Configure instance for InnoDB cluster
       ansible.builtin.shell: |
@@ -84,8 +98,8 @@
       args:
         executable: /bin/bash
       register: configure_instance
-      changed_when: true
-      tags: ["configure_instances"]
+      changed_when: false
+      tags: ["configure_instances", "configure_instances_mysqlsh"]
 
 - name: Cluster lifecycle on primary
   hosts: mysql_primary
@@ -156,28 +170,39 @@
       changed_when: "'added ' in add_instances.stdout"
       tags: ["add_instances"]
 
+    - name: Install cluster status script
+      ansible.builtin.copy:
+        dest: /usr/local/bin/mysql-cluster-status.py
+        mode: "0755"
+        content: |
+          import json
+          import os
+
+          shell.connect({
+            "user": os.environ["CLUSTER_ADMIN_USERNAME"],
+            "host": os.environ["PRIMARY_IP"],
+            "port": int(os.environ["MYSQL_PORT"]),
+            "password": os.environ["CLUSTER_ADMIN_PASSWORD"]
+          })
+          cluster = dba.get_cluster(os.environ["CLUSTER_NAME"])
+          print(json.dumps(cluster.status(), indent=2))
+      tags: ["verify_cluster", "status_check"]
+
     - name: Verify cluster status
       ansible.builtin.shell: |
         set -euo pipefail
-        cat >/tmp/verify_cluster.py <<'PY'
-        import json
-
-        shell.connect({
-          "user": {{ cluster_admin_username | to_json }},
-          "host": {{ primary_ip | to_json }},
-          "port": {{ mysql_port }},
-          "password": {{ cluster_admin_password | to_json }}
-        })
-        cluster = dba.get_cluster({{ cluster_name | to_json }})
-        print(json.dumps(cluster.status(), indent=2))
-        PY
-        mysqlsh --py --file /tmp/verify_cluster.py
-        rm -f /tmp/verify_cluster.py
+        mysqlsh --py --file /usr/local/bin/mysql-cluster-status.py
       args:
         executable: /bin/bash
+      environment:
+        CLUSTER_ADMIN_USERNAME: "{{ cluster_admin_username }}"
+        CLUSTER_ADMIN_PASSWORD: "{{ cluster_admin_password }}"
+        PRIMARY_IP: "{{ primary_ip }}"
+        MYSQL_PORT: "{{ mysql_port | string }}"
+        CLUSTER_NAME: "{{ cluster_name }}"
       register: verify_cluster
       changed_when: false
-      tags: ["verify_cluster"]
+      tags: ["verify_cluster", "status_check"]
 
 - name: Bootstrap mysqlrouter on all nodes
   hosts: all

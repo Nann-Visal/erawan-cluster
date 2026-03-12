@@ -70,7 +70,7 @@ REST API written in Go for:
 - `mysqlsh` installed
 - Optional `mysqlrouter` if `bootstrap_router=true`
 - SSH reachable from API VM with provided credentials
-- For fast mode (`assume_prepared=true`), `clusteradmin` must already exist and be reachable from cluster nodes
+- Root account reachable from API VM (`root_password`) so Ansible can run `dba.configure_instance`
 
 ### User / Permission Model
 No fixed Linux username is required. Use either:
@@ -201,7 +201,7 @@ curl -X POST http://127.0.0.1:8080/cluster/mysql/deploy \
     "cluster_name": "prodCluster",
     "primary_ip": "10.10.10.1",
     "secondary_ips": ["10.10.10.2", "10.10.10.3"],
-    "assume_prepared": true,
+    "assume_prepared": false,
     "bootstrap_router": false,
     "ssh_user": "root",
     "ssh_password": "password",
@@ -212,22 +212,21 @@ curl -X POST http://127.0.0.1:8080/cluster/mysql/deploy \
   }'
 ```
 
-Fast-path note:
-- Set `assume_prepared=true` when nodes are already prepared (`mysql`, `mysqlsh`, `report_host`, restart done). This skips `preflight` and `configure_instances` to reduce deploy time.
-- For fastest runtime, combine with `bootstrap_router=false` and bootstrap router later.
+Automation note:
+- Deploy automation now handles `doc/mysql.md` Step 1, 4, 5, 6, 7, 8, and 10 through Ansible.
+- `assume_prepared=true` skips `preflight` and `configure_instances` when nodes are already prepared.
+- For fastest runtime, keep `bootstrap_router=false` and bootstrap router later.
 
-Fast-path checklist (`assume_prepared=true`):
-1. `report_host` on each node resolves to its real node IP (not loopback `127.0.1.1`).
-2. `clusteradmin` user exists and can connect from peers (`'clusteradmin'@'%'` or stricter network host entries).
-3. `root` remote login works if you still use resume/rollback secrets with root operations.
-4. Nodes can reach each other over MySQL port.
+Pre-check checklist (before API deploy):
+1. `root` can connect remotely from API VM to every MySQL node.
+2. Nodes can reach each other over MySQL port.
+3. MySQL and `mysqlsh` are installed on all nodes.
 
 Resume example:
 ```bash
 curl -X POST http://127.0.0.1:8080/cluster/mysql/jobs/<job-id>/resume \
   -H 'Content-Type: application/json' \
   -d '{
-    "root_password": "RootPass#2026",
     "cluster_admin_password": "ClusterAdmin#2026",
     "ssh_password": "password"
   }'
@@ -238,7 +237,6 @@ Rollback example:
 curl -X POST http://127.0.0.1:8080/cluster/mysql/jobs/<job-id>/rollback \
   -H 'Content-Type: application/json' \
   -d '{
-    "root_password": "RootPass#2026",
     "cluster_admin_password": "ClusterAdmin#2026",
     "ssh_password": "password"
   }'
@@ -259,6 +257,14 @@ Deployment steps:
 - `bootstrap_router` (skipped when `bootstrap_router=false`)
 - `verify_cluster`
 
+Step purpose:
+- `preflight`: verifies `mysqlsh` and MySQL root connectivity.
+- `configure_instances`: applies `/etc/hosts` cluster entries, minimal MySQL config, and `dba.configure_instance`.
+- `create_cluster`: creates InnoDB Cluster on primary.
+- `add_instances`: adds secondary nodes with clone recovery.
+- `bootstrap_router`: configures mysqlrouter service on nodes (optional).
+- `verify_cluster`: installs/runs status script and prints cluster status from MySQL Shell.
+
 Step skip behavior:
 - `preflight` and `configure_instances` are skipped when `assume_prepared=true`
 - `bootstrap_router` is skipped when `bootstrap_router=false`
@@ -268,11 +274,11 @@ Common errors and fixes:
   - Cause: empty POST body (`EOF`).
   - Fix: send raw JSON body with `Content-Type: application/json`.
 - `Shell.connect: Host '<ip>' is not allowed to connect to this MySQL server`
-  - Cause: missing MySQL account host grant for `clusteradmin` (or root).
+  - Cause: missing MySQL account host grant for `clusteradmin`.
   - Fix: create/grant user on each node (`'clusteradmin'@'%'`) and `FLUSH PRIVILEGES`.
 - `Invalid host/IP 'ubuntu-server' resolves to '127.0.1.1'`
   - Cause: MySQL instance identity uses loopback-resolving hostname.
-  - Fix: set `report_host` to node IP in MySQL config and restart MySQL (handled by current deploy playbook when `configure_instances` runs).
+  - Fix: set `report_host` to node IP/hostname in MySQL config and restart MySQL (handled by `configure_instances` when `assume_prepared=false`).
 
 ## Security Notes
 - Optional API key auth middleware (`X-API-Key`).
