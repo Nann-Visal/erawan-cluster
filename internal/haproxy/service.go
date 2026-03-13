@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -122,6 +123,15 @@ func (s *Service) CreateConfig(ctx context.Context, in CreateConfigInput) error 
 		}
 		return fmt.Errorf("haproxy reload failed, rolled back: %w", err)
 	}
+	if err := s.verifyRuntimeAfterCreate(in.Port); err != nil {
+		if backup != "" {
+			_ = os.Rename(backup, filename)
+		} else {
+			_ = os.Remove(filename)
+		}
+		_ = s.Reload(ctx)
+		return fmt.Errorf("haproxy reload verification failed, rolled back: %w", err)
+	}
 
 	if backup != "" {
 		_ = os.Remove(backup)
@@ -153,6 +163,11 @@ func (s *Service) DeleteConfig(ctx context.Context, in DeleteConfigInput) (bool,
 	if err := s.Reload(ctx); err != nil {
 		_ = os.Rename(backup, filename)
 		return false, fmt.Errorf("haproxy reload failed, rolled back deletion: %w", err)
+	}
+	if err := s.verifyRuntimeAfterDelete(in.Port); err != nil {
+		_ = os.Rename(backup, filename)
+		_ = s.Reload(ctx)
+		return false, fmt.Errorf("haproxy reload verification failed, rolled back deletion: %w", err)
 	}
 	_ = os.Remove(backup)
 
@@ -202,6 +217,110 @@ func (s *Service) Reload(ctx context.Context) error {
 
 func (s *Service) filename(port int) string {
 	return filepath.Join(s.tenantsDir, fmt.Sprintf("%d.cfg", port))
+}
+
+func (s *Service) verifyRuntimeAfterCreate(port int) error {
+	if err := s.ensureHaproxyLoadsTenantsDir(); err != nil {
+		return err
+	}
+	if err := waitForPortState(port, true, 5*time.Second); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) verifyRuntimeAfterDelete(port int) error {
+	if err := s.ensureHaproxyLoadsTenantsDir(); err != nil {
+		return err
+	}
+	if err := waitForPortState(port, false, 5*time.Second); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) ensureHaproxyLoadsTenantsDir() error {
+	cmdlines, err := haproxyCmdlines()
+	if err != nil {
+		return err
+	}
+	for _, cmdline := range cmdlines {
+		if strings.Contains(cmdline, s.tenantsDir) {
+			return nil
+		}
+	}
+	return fmt.Errorf("running haproxy is not loading tenants dir: %s", s.tenantsDir)
+}
+
+func haproxyCmdlines() ([]string, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, fmt.Errorf("read /proc: %w", err)
+	}
+
+	cmdlines := make([]string, 0, 2)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := strconv.Atoi(entry.Name()); err != nil {
+			continue
+		}
+
+		commPath := filepath.Join("/proc", entry.Name(), "comm")
+		commRaw, err := os.ReadFile(commPath)
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(string(commRaw)) != "haproxy" {
+			continue
+		}
+
+		cmdPath := filepath.Join("/proc", entry.Name(), "cmdline")
+		cmdRaw, err := os.ReadFile(cmdPath)
+		if err != nil {
+			continue
+		}
+		cmd := strings.TrimSpace(strings.ReplaceAll(string(cmdRaw), "\x00", " "))
+		if cmd != "" {
+			cmdlines = append(cmdlines, cmd)
+		}
+	}
+	if len(cmdlines) == 0 {
+		return nil, fmt.Errorf("no running haproxy process found")
+	}
+	return cmdlines, nil
+}
+
+func waitForPortState(port int, shouldListen bool, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	deadline := time.Now().Add(timeout)
+	for {
+		conn, err := net.DialTimeout("tcp", addr, 300*time.Millisecond)
+		isListening := err == nil
+		if conn != nil {
+			_ = conn.Close()
+		}
+
+		if shouldListen && isListening {
+			return nil
+		}
+		if !shouldListen && !isListening {
+			return nil
+		}
+
+		if time.Now().After(deadline) {
+			if shouldListen {
+				return fmt.Errorf("port %d is not listening after reload", port)
+			}
+			return fmt.Errorf("port %d is still listening after reload", port)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 func buildConfigContent(port int, nodeIPs []string, dbPort int) string {
