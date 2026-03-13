@@ -352,7 +352,7 @@ Step purpose:
 - `add_instances`: adds secondary nodes with clone recovery.
 - `bootstrap_router`: bootstraps and configures mysqlrouter service on DB nodes.
 - `verify_cluster`: installs/runs status script and prints cluster status from MySQL Shell.
-- `init_app_db`: creates application database and app user on primary.
+- `init_app_db`: creates application database and app user on primary, then grants global privileges (`*.*`) with `GRANT OPTION` plus explicit privileges on `new_db`.
 
 Step skip behavior:
 - `preflight` and `configure_instances` are skipped when `assume_prepared=true`

@@ -14,7 +14,7 @@
     db_name = {{ new_db | to_json }}
     app_user = {{ new_user | to_json }}
     app_pass = {{ new_user_password | to_json }}
-    ssl_required = {{ new_user_ssl_required | default(false) | bool | to_json }}
+    ssl_required = {{ (new_user_ssl_required | default(false) | bool) | ternary('True', 'False') }}
 
     escaped_db = db_name.replace("`", "``")
     escaped_user = app_user.replace("`", "``")
@@ -32,6 +32,9 @@
       session.run_sql(f"ALTER USER `{escaped_user}`@'%' REQUIRE SSL")
     else:
       session.run_sql(f"ALTER USER `{escaped_user}`@'%' REQUIRE NONE")
+    session.run_sql(
+      f"GRANT ALL PRIVILEGES ON *.* TO `{escaped_user}`@'%' WITH GRANT OPTION"
+    )
     session.run_sql(f"GRANT ALL PRIVILEGES ON `{escaped_db}`.* TO `{escaped_user}`@'%'")
     session.run_sql("FLUSH PRIVILEGES")
     print("application database and user initialized")
