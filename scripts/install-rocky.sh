@@ -91,7 +91,7 @@ ExecStart=
 ExecStart=/usr/sbin/haproxy -Ws -f /etc/haproxy/haproxy.cfg -f ${TENANTS_DIR} -p /run/haproxy.pid -S /run/haproxy-master.sock
 ExecReload=
 ExecReload=/usr/sbin/haproxy -c -q -f /etc/haproxy/haproxy.cfg -f ${TENANTS_DIR}
-ExecReload=/bin/bash -lc '/usr/sbin/haproxy -Ws -f /etc/haproxy/haproxy.cfg -f ${TENANTS_DIR} -p /run/haproxy.pid -S /run/haproxy-master.sock -sf \$(cat /run/haproxy.pid)'
+ExecReload=/bin/kill -USR2 \$MAINPID
 EOF
 
 echo "==> Writing sudoers rule"
