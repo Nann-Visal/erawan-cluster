@@ -211,6 +211,11 @@ func buildConfigContent(port int, nodeIPs []string, dbPort int) string {
 	b.WriteString("    mode tcp\n")
 	b.WriteString("    balance leastconn\n")
 	b.WriteString("    option tcp-check\n")
+	b.WriteString("    timeout connect 3s\n")
+	b.WriteString("    timeout client  30s\n")
+	b.WriteString("    timeout server  30s\n")
+	b.WriteString("    option redispatch\n")
+	b.WriteString("    retries 3\n")
 	for i, ip := range nodeIPs {
 		b.WriteString(fmt.Sprintf("    server db%d %s:%d check inter 2s fall 3 rise 2\n", i+1, ip, dbPort))
 	}
