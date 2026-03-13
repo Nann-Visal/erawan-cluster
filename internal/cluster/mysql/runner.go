@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,9 @@ type Runner struct {
 	ansibleBin       string
 	deployPlaybook   string
 	rollbackPlaybook string
+	ansibleVerbosity int
+	streamLogs       bool
+	maxOutputChars   int
 }
 
 func NewRunner(ansibleBin, deployPlaybook, rollbackPlaybook string) *Runner {
@@ -27,6 +31,18 @@ func NewRunner(ansibleBin, deployPlaybook, rollbackPlaybook string) *Runner {
 		ansibleBin:       ansibleBin,
 		deployPlaybook:   deployPlaybook,
 		rollbackPlaybook: rollbackPlaybook,
+		maxOutputChars:   8000,
+	}
+}
+
+func (r *Runner) SetDebug(verbosity int, streamLogs bool, maxOutputChars int) {
+	if verbosity < 0 {
+		verbosity = 0
+	}
+	r.ansibleVerbosity = verbosity
+	r.streamLogs = streamLogs
+	if maxOutputChars > 0 {
+		r.maxOutputChars = maxOutputChars
 	}
 }
 
@@ -56,8 +72,8 @@ func (r *Runner) RunRollback(ctx context.Context, jobID string, spec StoredSpec,
 	return r.run(ctx, cfg, r.rollbackPlaybook)
 }
 
-func (r *Runner) run(ctx context.Context, cfg runConfig, playbook string) StepResult {
-	result := StepResult{
+func (r *Runner) run(ctx context.Context, cfg runConfig, playbook string) (result StepResult) {
+	result = StepResult{
 		Name:      cfg.step.Name,
 		Status:    JobStatusRunning,
 		StartedAt: time.Now().UTC(),
@@ -68,14 +84,14 @@ func (r *Runner) run(ctx context.Context, cfg runConfig, playbook string) StepRe
 	if strings.TrimSpace(playbook) == "" {
 		result.Status = JobStatusFailed
 		result.Message = "playbook path is not configured"
-		return result
+		return
 	}
 
 	workspace, err := os.MkdirTemp("", "mysql-cluster-job-")
 	if err != nil {
 		result.Status = JobStatusFailed
 		result.Message = fmt.Sprintf("create temp dir: %v", err)
-		return result
+		return
 	}
 	defer os.RemoveAll(workspace)
 
@@ -85,7 +101,7 @@ func (r *Runner) run(ctx context.Context, cfg runConfig, playbook string) StepRe
 	if err := os.WriteFile(inventoryPath, []byte(buildInventoryYAML(cfg.spec, cfg.secret)), 0o600); err != nil {
 		result.Status = JobStatusFailed
 		result.Message = fmt.Sprintf("write inventory: %v", err)
-		return result
+		return
 	}
 
 	extraVars := map[string]any{
@@ -97,21 +113,21 @@ func (r *Runner) run(ctx context.Context, cfg runConfig, playbook string) StepRe
 		"secondary_ips":          cfg.spec.SecondaryIPs,
 		"mysql_port":             cfg.spec.MySQLPort,
 		"bootstrap_router":       cfg.spec.BootstrapRouter,
-		"router_base_port":       cfg.spec.RouterBasePort,
 		"router_service_name":    "mysqlrouter-" + cfg.spec.ClusterName,
+		"step_timeout_seconds":   cfg.spec.StepTimeoutSeconds,
 	}
 
 	sanitized, err := json.Marshal(extraVars)
 	if err != nil {
 		result.Status = JobStatusFailed
 		result.Message = fmt.Sprintf("marshal vars: %v", err)
-		return result
+		return
 	}
 
 	if err := os.WriteFile(varsPath, sanitized, 0o600); err != nil {
 		result.Status = JobStatusFailed
 		result.Message = fmt.Sprintf("write vars: %v", err)
-		return result
+		return
 	}
 
 	runTimeout := cfg.timeout
@@ -127,23 +143,31 @@ func (r *Runner) run(ctx context.Context, cfg runConfig, playbook string) StepRe
 		"--tags", cfg.step.Tag,
 		"--extra-vars", "@" + varsPath,
 	}
+	if r.ansibleVerbosity > 0 {
+		args = append(args, "-"+strings.Repeat("v", r.ansibleVerbosity))
+	}
 
 	cmd := exec.CommandContext(stepCtx, r.ansibleBin, args...)
 	cmd.Env = append(os.Environ(), "ANSIBLE_HOST_KEY_CHECKING=False")
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	if r.streamLogs {
+		cmd.Stdout = io.MultiWriter(&stdout, os.Stdout)
+		cmd.Stderr = io.MultiWriter(&stderr, os.Stderr)
+	} else {
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+	}
 
 	err = cmd.Run()
-	result.Stdout = trimOutput(stdout.String())
-	result.Stderr = trimOutput(stderr.String())
+	result.Stdout = trimOutput(stdout.String(), r.maxOutputChars)
+	result.Stderr = trimOutput(stderr.String(), r.maxOutputChars)
 
 	if err == nil {
 		result.Status = JobStatusCompleted
 		result.ExitCode = 0
-		return result
+		return
 	}
 
 	result.Status = JobStatusFailed
@@ -154,10 +178,10 @@ func (r *Runner) run(ctx context.Context, cfg runConfig, playbook string) StepRe
 	}
 	if stepCtx.Err() == context.DeadlineExceeded {
 		result.Message = "step execution timed out"
-		return result
+		return
 	}
 	result.Message = fmt.Sprintf("ansible step failed: %v", err)
-	return result
+	return
 }
 
 func buildInventoryYAML(spec StoredSpec, secret SecretInput) string {
@@ -190,9 +214,11 @@ func buildInventoryYAML(spec StoredSpec, secret SecretInput) string {
 	return b.String()
 }
 
-func trimOutput(in string) string {
-	const max = 8000
+func trimOutput(in string, max int) string {
 	in = strings.TrimSpace(in)
+	if max <= 0 {
+		return in
+	}
 	if len(in) <= max {
 		return in
 	}

@@ -38,7 +38,17 @@ func main() {
 	ansibleBin := env.GetString("ANSIBLE_PLAYBOOK_BIN", "ansible-playbook")
 	deployPlaybook := env.GetString("MYSQL_DEPLOY_PLAYBOOK", filepath.Join(baseDir, "cluster/mysql/playbooks/deploy.yml"))
 	rollbackPlaybook := env.GetString("MYSQL_ROLLBACK_PLAYBOOK", filepath.Join(baseDir, "cluster/mysql/playbooks/rollback.yml"))
+	mysqlAnsibleDebug := env.GetBool("MYSQL_ANSIBLE_DEBUG", false)
+	mysqlAnsibleVerbosity := env.GetInt("MYSQL_ANSIBLE_VERBOSITY", 0)
+	mysqlStepOutputMaxChars := env.GetInt("MYSQL_STEP_OUTPUT_MAX_CHARS", 8000)
+	if mysqlAnsibleDebug && mysqlAnsibleVerbosity <= 0 {
+		mysqlAnsibleVerbosity = 3
+	}
+	if mysqlAnsibleDebug && mysqlStepOutputMaxChars == 8000 {
+		mysqlStepOutputMaxChars = 200000
+	}
 	runner := mysqlcluster.NewRunner(ansibleBin, deployPlaybook, rollbackPlaybook)
+	runner.SetDebug(mysqlAnsibleVerbosity, mysqlAnsibleDebug, mysqlStepOutputMaxChars)
 	mysqlSvc := mysqlcluster.NewService(store, runner)
 
 	app := &application{
@@ -53,6 +63,9 @@ func main() {
 	}
 
 	mux := app.mount()
+	if mysqlAnsibleDebug {
+		log.Printf("mysql ansible debug enabled: verbosity=%d, step_output_max_chars=%d", mysqlAnsibleVerbosity, mysqlStepOutputMaxChars)
+	}
 	log.Printf("erawan cluster api started at %s", addr)
 	log.Fatal(app.run(mux))
 }

@@ -1,14 +1,22 @@
 {
   "info": {
+    "_postman_id": "0f487bb5-3f07-49a9-9b29-e468f795d8d5",
     "name": "Erawan Cluster API (Go)",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Go API collection for HAProxy and MySQL cluster automation"
+    "description": "Postman collection for HAProxy and MySQL cluster endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "API_HOST", "value": "http://127.0.0.1" },
+    { "key": "API_HOST", "value": "127.0.0.1" },
     { "key": "API_PORT", "value": "8080" },
     { "key": "API_KEY", "value": "" },
-    { "key": "JOB_ID", "value": "" }
+    { "key": "JOB_ID", "value": "" },
+    { "key": "ROOT_PASSWORD", "value": "RootPass#2026" },
+    { "key": "CLUSTER_ADMIN_USERNAME", "value": "clusteradmin" },
+    { "key": "CLUSTER_ADMIN_PASSWORD", "value": "ClusterAdmin#2026" },
+    { "key": "SSH_PASSWORD", "value": "password" },
+    { "key": "PRIMARY_IP", "value": "192.168.122.154" },
+    { "key": "SECONDARY_IP", "value": "192.168.122.111" },
+    { "key": "CLUSTER_NAME", "value": "prodCluster" }
   ],
   "item": [
     {
@@ -18,7 +26,13 @@
         "header": [
           { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
         ],
-        "url": "{{API_HOST}}:{{API_PORT}}/health"
+        "url": {
+          "raw": "http://{{API_HOST}}:{{API_PORT}}/health",
+          "protocol": "http",
+          "host": ["{{API_HOST}}"],
+          "port": "{{API_PORT}}",
+          "path": ["health"]
+        }
       }
     },
     {
@@ -28,7 +42,13 @@
         "header": [
           { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
         ],
-        "url": "{{API_HOST}}:{{API_PORT}}/docs"
+        "url": {
+          "raw": "http://{{API_HOST}}:{{API_PORT}}/docs",
+          "protocol": "http",
+          "host": ["{{API_HOST}}"],
+          "port": "{{API_PORT}}",
+          "path": ["docs"]
+        }
       }
     },
     {
@@ -39,10 +59,16 @@
           { "key": "Content-Type", "value": "application/json" },
           { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
         ],
-        "url": "{{API_HOST}}:{{API_PORT}}/haproxy/config",
         "body": {
           "mode": "raw",
           "raw": "{\n  \"port\": 25010,\n  \"node_ips\": [\"10.10.107.182\", \"10.10.107.183\"],\n  \"db_port\": 6446\n}"
+        },
+        "url": {
+          "raw": "http://{{API_HOST}}:{{API_PORT}}/haproxy/config",
+          "protocol": "http",
+          "host": ["{{API_HOST}}"],
+          "port": "{{API_PORT}}",
+          "path": ["haproxy", "config"]
         }
       }
     },
@@ -54,10 +80,16 @@
           { "key": "Content-Type", "value": "application/json" },
           { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
         ],
-        "url": "{{API_HOST}}:{{API_PORT}}/haproxy/config",
         "body": {
           "mode": "raw",
           "raw": "{\n  \"port\": 25010\n}"
+        },
+        "url": {
+          "raw": "http://{{API_HOST}}:{{API_PORT}}/haproxy/config",
+          "protocol": "http",
+          "host": ["{{API_HOST}}"],
+          "port": "{{API_PORT}}",
+          "path": ["haproxy", "config"]
         }
       }
     },
@@ -68,7 +100,13 @@
         "header": [
           { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
         ],
-        "url": "{{API_HOST}}:{{API_PORT}}/haproxy/configs"
+        "url": {
+          "raw": "http://{{API_HOST}}:{{API_PORT}}/haproxy/configs",
+          "protocol": "http",
+          "host": ["{{API_HOST}}"],
+          "port": "{{API_PORT}}",
+          "path": ["haproxy", "configs"]
+        }
       }
     },
     {
@@ -78,7 +116,13 @@
         "header": [
           { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
         ],
-        "url": "{{API_HOST}}:{{API_PORT}}/haproxy/reload"
+        "url": {
+          "raw": "http://{{API_HOST}}:{{API_PORT}}/haproxy/reload",
+          "protocol": "http",
+          "host": ["{{API_HOST}}"],
+          "port": "{{API_PORT}}",
+          "path": ["haproxy", "reload"]
+        }
       }
     },
     {
@@ -89,10 +133,16 @@
           { "key": "Content-Type", "value": "application/json" },
           { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
         ],
-        "url": "{{API_HOST}}:{{API_PORT}}/cluster/mysql/deploy",
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"root_password\": \"RootPass#2026\",\n  \"cluster_admin_username\": \"clusteradmin\",\n  \"cluster_admin_password\": \"ClusterAdmin#2026\",\n  \"cluster_name\": \"sambar6Cluster\",\n  \"primary_ip\": \"192.168.122.154\",\n  \"secondary_ips\": [\"192.168.122.111\"],\n  \"assume_prepared\": false,\n  \"bootstrap_router\": true,\n  \"ssh_user\": \"root\",\n  \"ssh_password\": \"password\",\n  \"ssh_port\": 22,\n  \"mysql_port\": 3306,\n  \"router_base_port\": 6446,\n  \"step_timeout_seconds\": 900\n}"
+          "raw": "{\n  \"root_password\": \"{{ROOT_PASSWORD}}\",\n  \"cluster_admin_username\": \"{{CLUSTER_ADMIN_USERNAME}}\",\n  \"cluster_admin_password\": \"{{CLUSTER_ADMIN_PASSWORD}}\",\n  \"cluster_name\": \"{{CLUSTER_NAME}}\",\n  \"primary_ip\": \"{{PRIMARY_IP}}\",\n  \"secondary_ips\": [\"{{SECONDARY_IP}}\"],\n  \"assume_prepared\": false,\n  \"bootstrap_router\": true,\n  \"ssh_user\": \"root\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"ssh_port\": 22,\n  \"mysql_port\": 3306,\n  \"step_timeout_seconds\": 900\n}"
+        },
+        "url": {
+          "raw": "http://{{API_HOST}}:{{API_PORT}}/cluster/mysql/deploy",
+          "protocol": "http",
+          "host": ["{{API_HOST}}"],
+          "port": "{{API_PORT}}",
+          "path": ["cluster", "mysql", "deploy"]
         }
       }
     },
@@ -103,7 +153,16 @@
         "header": [
           { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
         ],
-        "url": "{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs?limit=20"
+        "url": {
+          "raw": "http://{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs?limit=20",
+          "protocol": "http",
+          "host": ["{{API_HOST}}"],
+          "port": "{{API_PORT}}",
+          "path": ["cluster", "mysql", "jobs"],
+          "query": [
+            { "key": "limit", "value": "20" }
+          ]
+        }
       }
     },
     {
@@ -113,7 +172,13 @@
         "header": [
           { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
         ],
-        "url": "{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs/{{JOB_ID}}"
+        "url": {
+          "raw": "http://{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs/{{JOB_ID}}",
+          "protocol": "http",
+          "host": ["{{API_HOST}}"],
+          "port": "{{API_PORT}}",
+          "path": ["cluster", "mysql", "jobs", "{{JOB_ID}}"]
+        }
       }
     },
     {
@@ -124,10 +189,16 @@
           { "key": "Content-Type", "value": "application/json" },
           { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
         ],
-        "url": "{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs/{{JOB_ID}}/resume",
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"cluster_admin_password\": \"ClusterAdmin#2026\",\n  \"ssh_password\": \"password\"\n}"
+          "raw": "{\n  \"root_password\": \"{{ROOT_PASSWORD}}\",\n  \"cluster_admin_password\": \"{{CLUSTER_ADMIN_PASSWORD}}\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\"\n}"
+        },
+        "url": {
+          "raw": "http://{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs/{{JOB_ID}}/resume",
+          "protocol": "http",
+          "host": ["{{API_HOST}}"],
+          "port": "{{API_PORT}}",
+          "path": ["cluster", "mysql", "jobs", "{{JOB_ID}}", "resume"]
         }
       }
     },
@@ -139,10 +210,16 @@
           { "key": "Content-Type", "value": "application/json" },
           { "key": "X-API-Key", "value": "{{API_KEY}}", "disabled": true }
         ],
-        "url": "{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs/{{JOB_ID}}/rollback",
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"cluster_admin_password\": \"ClusterAdmin#2026\",\n  \"ssh_password\": \"password\"\n}"
+          "raw": "{\n  \"root_password\": \"{{ROOT_PASSWORD}}\",\n  \"cluster_admin_password\": \"{{CLUSTER_ADMIN_PASSWORD}}\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\"\n}"
+        },
+        "url": {
+          "raw": "http://{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs/{{JOB_ID}}/rollback",
+          "protocol": "http",
+          "host": ["{{API_HOST}}"],
+          "port": "{{API_PORT}}",
+          "path": ["cluster", "mysql", "jobs", "{{JOB_ID}}", "rollback"]
         }
       }
     }

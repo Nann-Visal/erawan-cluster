@@ -23,7 +23,6 @@ type DeployRequest struct {
 	SSHPassword          string   `json:"ssh_password"`
 	SSHPort              int      `json:"ssh_port"`
 	MySQLPort            int      `json:"mysql_port"`
-	RouterBasePort       int      `json:"router_base_port"`
 	StepTimeoutSeconds   int      `json:"step_timeout_seconds"`
 }
 
@@ -79,7 +78,6 @@ type StoredSpec struct {
 	SSHUser              string   `json:"ssh_user"`
 	SSHPort              int      `json:"ssh_port"`
 	MySQLPort            int      `json:"mysql_port"`
-	RouterBasePort       int      `json:"router_base_port"`
 	StepTimeoutSeconds   int      `json:"step_timeout_seconds"`
 }
 

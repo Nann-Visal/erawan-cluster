@@ -56,7 +56,6 @@ func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 			SSHUser:              req.SSHUser,
 			SSHPort:              req.SSHPort,
 			MySQLPort:            req.MySQLPort,
-			RouterBasePort:       req.RouterBasePort,
 			StepTimeoutSeconds:   req.StepTimeoutSeconds,
 		},
 		Steps: make([]StepResult, 0, len(s.steps)+1),

@@ -68,7 +68,6 @@ REST API written in Go for:
 ### MySQL target nodes
 - Running MySQL
 - `mysqlsh` installed
-- Optional `mysqlrouter` if `bootstrap_router=true`
 - SSH reachable from API VM with provided credentials
 - Root account reachable from API VM (`root_password`) so Ansible can run `dba.configure_instance`
 
@@ -138,6 +137,9 @@ Environment variables:
 | `ANSIBLE_PLAYBOOK_BIN` | `ansible-playbook` | Ansible binary path |
 | `MYSQL_DEPLOY_PLAYBOOK` | `<repo>/cluster/mysql/playbooks/deploy.yml` | Deploy playbook path |
 | `MYSQL_ROLLBACK_PLAYBOOK` | `<repo>/cluster/mysql/playbooks/rollback.yml` | Rollback playbook path |
+| `MYSQL_ANSIBLE_DEBUG` | `false` | Streams Ansible stdout/stderr live to API logs and increases retained step output size |
+| `MYSQL_ANSIBLE_VERBOSITY` | `0` (`3` when debug=true) | Adds Ansible `-v` verbosity (`1` to `4` commonly used) |
+| `MYSQL_STEP_OUTPUT_MAX_CHARS` | `8000` (`200000` when debug=true) | Max chars kept per step in job `stdout` / `stderr` |
 
 ## API
 
@@ -207,16 +209,15 @@ curl -X POST http://127.0.0.1:8080/cluster/mysql/deploy \
     "ssh_password": "password",
     "ssh_port": 22,
     "mysql_port": 3306,
-    "router_base_port": 6446,
     "step_timeout_seconds": 900
   }'
 ```
 
 Automation note:
 - Deploy automation now handles `doc/mysql.md` Step 1, 4, 5, 6, 7, 8, and 10 through Ansible.
+- `cluster_name` defaults to `prodCluster` when omitted.
 - `assume_prepared=true` skips `preflight` and `configure_instances` when nodes are already prepared.
 - `bootstrap_router` defaults to `true` when omitted.
-- Set `bootstrap_router=false` only when you want to skip router bootstrap.
 
 Pre-check checklist (before API deploy):
 1. `root` can connect remotely from API VM to every MySQL node.
@@ -263,12 +264,18 @@ Step purpose:
 - `configure_instances`: applies `/etc/hosts` cluster entries, minimal MySQL config, and `dba.configure_instance`.
 - `create_cluster`: creates InnoDB Cluster on primary.
 - `add_instances`: adds secondary nodes with clone recovery.
-- `bootstrap_router`: configures mysqlrouter service on nodes (optional).
+- `bootstrap_router`: bootstraps and configures mysqlrouter service on DB nodes.
 - `verify_cluster`: installs/runs status script and prints cluster status from MySQL Shell.
 
 Step skip behavior:
 - `preflight` and `configure_instances` are skipped when `assume_prepared=true`
 - `bootstrap_router` is skipped when `bootstrap_router=false`
+
+Debugging Ansible step crashes:
+- Set `MYSQL_ANSIBLE_DEBUG=true` and restart API service to stream live Ansible logs into systemd/journal logs.
+- Optionally set `MYSQL_ANSIBLE_VERBOSITY=3` (or `4`) for more detail.
+- Check `GET /cluster/mysql/jobs/{jobID}` for `current_step`, then inspect that step's `stdout` and `stderr`.
+- Live `sudo journalctl -u erawan-cluster -f`
 
 Common errors and fixes:
 - `invalid request body: request body is required`

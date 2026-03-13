@@ -39,6 +39,7 @@
       ansible.builtin.shell: |
         set -euo pipefail
         cat >/tmp/rollback_cluster.py <<'PY'
+        shell.options["useWizards"] = False
         primary_host = {{ primary_ip | to_json }}
         primary_port = {{ mysql_port }}
         cluster_name = {{ cluster_name | to_json }}
@@ -81,7 +82,8 @@
           else:
             raise
         PY
-        mysqlsh --py --file /tmp/rollback_cluster.py
+        timeout {{ mysqlsh_rollback_timeout_seconds | default(180) | int }} \
+          mysqlsh --no-wizard --py --file /tmp/rollback_cluster.py
         rm -f /tmp/rollback_cluster.py
       args:
         executable: /bin/bash

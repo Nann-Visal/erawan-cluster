@@ -131,7 +131,7 @@ clusterAdminPass = "ClusterAdmin#2026"
 shell.connect(f"{clusterAdmin}@10.10.10.1:3306", clusterAdminPass)
 
 # Create cluster
-cluster = dba.createCluster("nameOfCluster", {
+cluster = dba.createCluster("routerCluster", {
     "multiPrimary": False
 })
 
@@ -162,6 +162,8 @@ EOF
 mysqlsh --js --file create-cluster.js
 ```
 
+> The examples use `routerCluster` as the default cluster name. Change it only if you also update router directory/service names to match.
+
 ---
 
 ## Step 7 — Bootstrap MySQL Router on Each MySQL Node
@@ -178,7 +180,7 @@ id mysqlrouter || sudo useradd -r -s /usr/sbin/nologin mysqlrouter
 sudo mysqlrouter --bootstrap clusteradmin@10.10.10.n:3306 \
   --conf-use-gr-notifications \
   --conf-base-port 6446 \
-  --directory /etc/mysqlrouter/nameOfCluster \
+  --directory /etc/mysqlrouter/routerCluster \
   --user=mysqlrouter
 ```
 
@@ -187,7 +189,7 @@ sudo mysqlrouter --bootstrap clusteradmin@10.10.10.n:3306 \
 > | Port | Purpose |
 > |------|---------|
 > | 6446 | Read/Write (primary) |
-> | 6447 | Read-only (secondaries) |
+> | 6446 | Read-only (secondaries) |
 > | 6448 | Read/Write (classic protocol) |
 > | 6449 | Read-only (classic protocol) |
 
@@ -198,9 +200,9 @@ sudo mysqlrouter --bootstrap clusteradmin@10.10.10.n:3306 \
 Register MySQL Router as a systemd service so it starts automatically on boot and restarts on failure.
 
 ```bash
-sudo tee /etc/systemd/system/mysqlrouter-prod.service >/dev/null <<'EOF'
+sudo tee /etc/systemd/system/mysqlrouter-routerCluster.service >/dev/null <<'EOF'
 [Unit]
-Description=MySQL Router for nameOfCluster
+Description=MySQL Router for routerCluster
 After=network.target mysql.service
 Wants=network.target
 
@@ -208,7 +210,7 @@ Wants=network.target
 Type=simple
 User=mysqlrouter
 Group=mysqlrouter
-ExecStart=/usr/bin/mysqlrouter -c /etc/mysqlrouter/nameOfCluster/mysqlrouter.conf
+ExecStart=/usr/bin/mysqlrouter -c /etc/mysqlrouter/routerCluster/mysqlrouter.conf
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
@@ -218,9 +220,9 @@ WantedBy=multi-user.target
 EOF
 
 sudo systemctl daemon-reload
-sudo systemctl enable mysqlrouter-prod
-sudo systemctl restart mysqlrouter-prod
-sudo systemctl status mysqlrouter-prod
+sudo systemctl enable mysqlrouter-routerCluster
+sudo systemctl restart mysqlrouter-routerCluster
+sudo systemctl status mysqlrouter-routerCluster
 ```
 
 ---
@@ -234,10 +236,10 @@ listen mysql_{port}
     mode tcp
     balance leastconn
     option tcp-check
-    server db1 10.10.10.1:6447 check inter 2s fall 3 rise 2
-    server db2 10.10.10.2:6447 check inter 2s fall 3 rise 2
-    server db3 10.10.10.3:6447 check inter 2s fall 3 rise 2
-    server dbn 10.10.10.n:6447 check inter 2s fall 3 rise 2
+    server db1 10.10.10.1:6446 check inter 2s fall 3 rise 2
+    server db2 10.10.10.2:6446 check inter 2s fall 3 rise 2
+    server db3 10.10.10.3:6446 check inter 2s fall 3 rise 2
+    server dbn 10.10.10.n:6446 check inter 2s fall 3 rise 2
 
 sudo haproxy -c -f /var/lib/erawan-cluster/tenants/{port}.cfg
 sudo systemctl enable haproxy
@@ -245,7 +247,7 @@ sudo systemctl restart haproxy
 sudo systemctl status haproxy
 ```
 
-> **Note:** Port `6447` is the read-only Router port. Use `6446` if you need to route read/write traffic through HAProxy instead.
+> **Note:** Port `6446` is the read-only Router port. Use `6446` if you need to route read/write traffic through HAProxy instead.
 
 ---
 
@@ -258,7 +260,7 @@ Use this script to query the live cluster status at any time via MySQL Shell. Th
 set -euo pipefail
 
 mysqlsh --js -u clusteradmin -h 10.10.189.18 -P 3306 -p -e \
-"import json; print(json.dumps(dba.getCluster('prodCluster').status(), indent=2))"
+"import json; print(json.dumps(dba.getCluster('routerCluster').status(), indent=2))"
 
 chmod +x cluster-status.sh
 ./cluster-status.sh
@@ -272,7 +274,7 @@ chmod +x cluster-status.sh
                         ┌─────────────┐
       App Clients ──▶   │   HAProxy   │  (TCP Load Balancer)
                         └──────┬──────┘
-                               │ port 6446/6447
+                               │ port 6446/6446
               ┌────────────────┼────────────────┐
               ▼                ▼                ▼
         ┌──────────┐    ┌──────────┐    ┌──────────┐

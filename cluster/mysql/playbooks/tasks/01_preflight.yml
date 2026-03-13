@@ -1,0 +1,34 @@
+- name: Ensure mysqlsh is installed
+  ansible.builtin.command:
+    argv: [mysqlsh, --version]
+  register: mysqlsh_check
+  changed_when: false
+  failed_when: mysqlsh_check.rc != 0
+  tags: ["preflight"]
+
+- name: Verify MySQL root connectivity
+  ansible.builtin.command:
+    argv:
+      - mysqladmin
+      - ping
+      - -h
+      - "{{ ansible_host }}"
+      - -P
+      - "{{ mysql_port | string }}"
+      - -u
+      - root
+  environment:
+    MYSQL_PWD: "{{ root_password }}"
+  register: mysql_ping
+  changed_when: false
+  failed_when: mysql_ping.rc != 0
+  tags: ["preflight"]
+
+- name: Ensure mysqlrouter is installed when bootstrap is enabled
+  ansible.builtin.command:
+    argv: [mysqlrouter, --version]
+  register: mysqlrouter_check
+  changed_when: false
+  failed_when: mysqlrouter_check.rc != 0
+  when: bootstrap_router | bool
+  tags: ["preflight", "bootstrap_router"]

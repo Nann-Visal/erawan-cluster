@@ -17,6 +17,9 @@ func ValidateDeployRequest(req *DeployRequest) error {
 	req.ClusterName = strings.TrimSpace(req.ClusterName)
 	req.PrimaryIP = strings.TrimSpace(req.PrimaryIP)
 	req.SSHUser = strings.TrimSpace(req.SSHUser)
+	if req.ClusterName == "" {
+		req.ClusterName = "prodCluster"
+	}
 
 	if strings.TrimSpace(req.RootPassword) == "" {
 		return fmt.Errorf("root_password is required")
@@ -65,12 +68,6 @@ func ValidateDeployRequest(req *DeployRequest) error {
 	}
 	if req.MySQLPort < 1 || req.MySQLPort > 65535 {
 		return fmt.Errorf("mysql_port must be between 1 and 65535")
-	}
-	if req.RouterBasePort == 0 {
-		req.RouterBasePort = 6446
-	}
-	if req.RouterBasePort < 1 || req.RouterBasePort > 65530 {
-		return fmt.Errorf("router_base_port must be between 1 and 65530")
 	}
 	if req.StepTimeoutSeconds == 0 {
 		req.StepTimeoutSeconds = 900
