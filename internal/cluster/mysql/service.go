@@ -31,6 +31,7 @@ func NewService(store *Store, runner *Runner) *Service {
 			{Name: "add_instances", Tag: "add_instances"},
 			{Name: "bootstrap_router", Tag: "bootstrap_router", Skippable: true},
 			{Name: "verify_cluster", Tag: "verify_cluster"},
+			{Name: "init_app_db", Tag: "init_app_db"},
 		},
 	}
 }
@@ -51,6 +52,9 @@ func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 			ClusterName:          req.ClusterName,
 			PrimaryIP:            req.PrimaryIP,
 			SecondaryIPs:         req.SecondaryIPs,
+			NewUser:              req.NewUser,
+			NewUserSSLRequired:   req.NewUserSSLRequired,
+			NewDB:                req.NewDB,
 			AssumePrepared:       req.AssumePrepared,
 			BootstrapRouter:      req.BootstrapRouterEnabled(),
 			SSHUser:              req.SSHUser,
@@ -69,6 +73,7 @@ func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 		RootPassword:         req.RootPassword,
 		ClusterAdminPassword: req.ClusterAdminPassword,
 		SSHPassword:          req.SSHPassword,
+		NewUserPassword:      req.NewUserPassword,
 	}
 
 	if err := s.executeFrom(ctx, job, 0, secrets); err != nil {
@@ -100,6 +105,9 @@ func (s *Service) Resume(ctx context.Context, jobID string, req ResumeRequest) (
 		job.Error = ""
 		_ = s.store.Save(job)
 		return job, nil
+	}
+	if job.Request.NewUser != "" && secret.NewUserPassword == "" {
+		return nil, fmt.Errorf("new_user_password is required to resume job %s", jobID)
 	}
 
 	job.Status = JobStatusRunning
@@ -213,6 +221,9 @@ func (s *Service) executeFrom(ctx context.Context, job *Job, startIndex int, sec
 func shouldSkipStep(st step, spec StoredSpec) (string, bool) {
 	if st.Name == "add_instances" && len(spec.SecondaryIPs) == 0 {
 		return "secondary_ips is empty", true
+	}
+	if st.Name == "init_app_db" && (spec.NewUser == "" || spec.NewDB == "") {
+		return "new_user/new_db not provided", true
 	}
 	if st.Skippable && !spec.BootstrapRouter {
 		return "bootstrap_router is false", true

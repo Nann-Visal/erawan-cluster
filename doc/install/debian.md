@@ -35,7 +35,7 @@ API_HOST=127.0.0.1
 API_PORT=8080
 API_KEY=<long-random-key>
 TENANTS_DIR=/var/lib/erawan-cluster/haproxy/tenants
-HAPROXY_RELOAD_CMD=/bin/systemctl reload haproxy
+HAPROXY_RELOAD_CMD=sudo /bin/systemctl reload haproxy
 CLUSTER_STATE_DIR=/var/lib/erawan-cluster/cluster/jobs
 MYSQL_DEPLOY_PLAYBOOK=/opt/erawan-cluster/cluster/mysql/playbooks/deploy.yml
 MYSQL_ROLLBACK_PLAYBOOK=/opt/erawan-cluster/cluster/mysql/playbooks/rollback.yml
@@ -44,7 +44,7 @@ MYSQL_ROLLBACK_PLAYBOOK=/opt/erawan-cluster/cluster/mysql/playbooks/rollback.yml
 ## 5) Reload services
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl restart haproxy
+sudo systemctl reload haproxy || sudo systemctl start haproxy
 sudo systemctl restart erawan-cluster
 ```
 
@@ -65,5 +65,8 @@ sudo journalctl -u haproxy -f
 ## Debian HAProxy notes
 1. Ensure `/etc/haproxy/haproxy.cfg` has:
    - `stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners`
-2. Ensure `/etc/default/haproxy` has:
-   - `CONFIG="/etc/haproxy/haproxy.cfg -f /var/lib/erawan-cluster/haproxy/tenants"`
+2. Installer writes systemd override:
+   - `/etc/systemd/system/haproxy.service.d/override.conf`
+3. Verify running HAProxy includes both config paths:
+   - `/etc/haproxy/haproxy.cfg`
+   - `/var/lib/erawan-cluster/haproxy/tenants`

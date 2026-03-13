@@ -17,6 +17,10 @@ type DeployRequest struct {
 	ClusterName          string   `json:"cluster_name"`
 	PrimaryIP            string   `json:"primary_ip"`
 	SecondaryIPs         []string `json:"secondary_ips"`
+	NewUser              string   `json:"new_user"`
+	NewUserPassword      string   `json:"new_user_password"`
+	NewUserSSLRequired   bool     `json:"new_user_ssl_required"`
+	NewDB                string   `json:"new_db"`
 	AssumePrepared       bool     `json:"assume_prepared"`
 	BootstrapRouter      *bool    `json:"bootstrap_router"`
 	SSHUser              string   `json:"ssh_user"`
@@ -37,6 +41,7 @@ type ResumeRequest struct {
 	RootPassword         string `json:"root_password"`
 	ClusterAdminPassword string `json:"cluster_admin_password"`
 	SSHPassword          string `json:"ssh_password"`
+	NewUserPassword      string `json:"new_user_password"`
 }
 
 type RollbackRequest struct {
@@ -73,6 +78,9 @@ type StoredSpec struct {
 	ClusterName          string   `json:"cluster_name"`
 	PrimaryIP            string   `json:"primary_ip"`
 	SecondaryIPs         []string `json:"secondary_ips"`
+	NewUser              string   `json:"new_user"`
+	NewUserSSLRequired   bool     `json:"new_user_ssl_required"`
+	NewDB                string   `json:"new_db"`
 	AssumePrepared       bool     `json:"assume_prepared"`
 	BootstrapRouter      bool     `json:"bootstrap_router"`
 	SSHUser              string   `json:"ssh_user"`
@@ -85,4 +93,5 @@ type SecretInput struct {
 	RootPassword         string
 	ClusterAdminPassword string
 	SSHPassword          string
+	NewUserPassword      string
 }

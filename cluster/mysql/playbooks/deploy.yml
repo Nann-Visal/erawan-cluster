@@ -40,6 +40,9 @@
     - name: Include verify-cluster tasks
       ansible.builtin.import_tasks: tasks/06_verify_cluster.yml
 
+    - name: Include init-app-db tasks
+      ansible.builtin.import_tasks: tasks/07_init_app_db.yml
+
 # ---------------------------------------------------------------------------
 # PLAY 4 — Bootstrap MySQL Router on all nodes
 # ---------------------------------------------------------------------------

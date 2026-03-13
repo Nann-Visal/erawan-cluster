@@ -16,7 +16,11 @@
     { "key": "SSH_PASSWORD", "value": "password" },
     { "key": "PRIMARY_IP", "value": "192.168.122.154" },
     { "key": "SECONDARY_IP", "value": "192.168.122.111" },
-    { "key": "CLUSTER_NAME", "value": "prodCluster" }
+    { "key": "CLUSTER_NAME", "value": "prodCluster" },
+    { "key": "NEW_USER", "value": "appuser" },
+    { "key": "NEW_USER_PASSWORD", "value": "AppUser#2026" },
+    { "key": "NEW_USER_SSL_REQUIRED", "value": "true" },
+    { "key": "NEW_DB", "value": "appdb" }
   ],
   "item": [
     {
@@ -135,7 +139,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"root_password\": \"{{ROOT_PASSWORD}}\",\n  \"cluster_admin_username\": \"{{CLUSTER_ADMIN_USERNAME}}\",\n  \"cluster_admin_password\": \"{{CLUSTER_ADMIN_PASSWORD}}\",\n  \"cluster_name\": \"{{CLUSTER_NAME}}\",\n  \"primary_ip\": \"{{PRIMARY_IP}}\",\n  \"secondary_ips\": [\"{{SECONDARY_IP}}\"],\n  \"assume_prepared\": false,\n  \"bootstrap_router\": true,\n  \"ssh_user\": \"root\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"ssh_port\": 22,\n  \"mysql_port\": 3306,\n  \"step_timeout_seconds\": 900\n}"
+          "raw": "{\n  \"root_password\": \"{{ROOT_PASSWORD}}\",\n  \"cluster_admin_username\": \"{{CLUSTER_ADMIN_USERNAME}}\",\n  \"cluster_admin_password\": \"{{CLUSTER_ADMIN_PASSWORD}}\",\n  \"cluster_name\": \"{{CLUSTER_NAME}}\",\n  \"primary_ip\": \"{{PRIMARY_IP}}\",\n  \"secondary_ips\": [\"{{SECONDARY_IP}}\"],\n  \"new_user\": \"{{NEW_USER}}\",\n  \"new_user_password\": \"{{NEW_USER_PASSWORD}}\",\n  \"new_user_ssl_required\": {{NEW_USER_SSL_REQUIRED}},\n  \"new_db\": \"{{NEW_DB}}\",\n  \"assume_prepared\": false,\n  \"bootstrap_router\": true,\n  \"ssh_user\": \"root\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"ssh_port\": 22,\n  \"mysql_port\": 3306,\n  \"step_timeout_seconds\": 900\n}"
         },
         "url": {
           "raw": "http://{{API_HOST}}:{{API_PORT}}/cluster/mysql/deploy",
@@ -191,7 +195,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"root_password\": \"{{ROOT_PASSWORD}}\",\n  \"cluster_admin_password\": \"{{CLUSTER_ADMIN_PASSWORD}}\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\"\n}"
+          "raw": "{\n  \"root_password\": \"{{ROOT_PASSWORD}}\",\n  \"cluster_admin_password\": \"{{CLUSTER_ADMIN_PASSWORD}}\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"new_user_password\": \"{{NEW_USER_PASSWORD}}\"\n}"
         },
         "url": {
           "raw": "http://{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs/{{JOB_ID}}/resume",

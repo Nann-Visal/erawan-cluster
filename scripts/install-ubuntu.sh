@@ -28,6 +28,8 @@ JOBS_DIR="${APP_STATE_DIR}/cluster/jobs"
 TENANTS_DIR="${APP_STATE_DIR}/haproxy/tenants"
 SUDOERS_FILE="/etc/sudoers.d/${APP_USER}-haproxy-reload"
 UNIT_FILE="/etc/systemd/system/${APP_NAME}.service"
+HAPROXY_OVERRIDE_DIR="/etc/systemd/system/haproxy.service.d"
+HAPROXY_OVERRIDE_FILE="${HAPROXY_OVERRIDE_DIR}/override.conf"
 
 echo "==> Installing packages"
 apt update
@@ -59,7 +61,7 @@ ENV=prod
 API_KEY=CHANGE_TO_STRONG_RANDOM_KEY
 
 TENANTS_DIR=${TENANTS_DIR}
-HAPROXY_RELOAD_CMD=/bin/systemctl reload haproxy
+HAPROXY_RELOAD_CMD=sudo /bin/systemctl reload haproxy
 HAPROXY_RELOAD_TIMEOUT_SECONDS=15
 
 CLUSTER_STATE_DIR=${JOBS_DIR}
@@ -89,6 +91,17 @@ if [[ -f /etc/default/haproxy ]]; then
     echo "CONFIG=\"/etc/haproxy/haproxy.cfg -f ${TENANTS_DIR}\"" >> /etc/default/haproxy
   fi
 fi
+
+echo "==> Configuring HAProxy systemd override for hot reload with tenant directory"
+install -d -o root -g root -m 0755 "${HAPROXY_OVERRIDE_DIR}"
+cat >"${HAPROXY_OVERRIDE_FILE}" <<EOF
+[Service]
+ExecStart=
+ExecStart=/usr/sbin/haproxy -Ws -f /etc/haproxy/haproxy.cfg -f ${TENANTS_DIR} -p /run/haproxy.pid -S /run/haproxy-master.sock
+ExecReload=
+ExecReload=/usr/sbin/haproxy -c -q -f /etc/haproxy/haproxy.cfg -f ${TENANTS_DIR}
+ExecReload=/bin/bash -lc '/usr/sbin/haproxy -Ws -f /etc/haproxy/haproxy.cfg -f ${TENANTS_DIR} -p /run/haproxy.pid -S /run/haproxy-master.sock -sf \$(cat /run/haproxy.pid)'
+EOF
 
 echo "==> Writing sudoers rule"
 cat >"${SUDOERS_FILE}" <<EOF
@@ -126,7 +139,15 @@ haproxy -c -f /etc/haproxy/haproxy.cfg -f "${TENANTS_DIR}"
 
 echo "==> Starting services"
 systemctl daemon-reload
-systemctl enable --now haproxy "${APP_NAME}"
+systemctl enable haproxy "${APP_NAME}"
+if systemctl is-active --quiet haproxy; then
+  echo "==> Reloading HAProxy (no restart)"
+  systemctl reload haproxy
+else
+  echo "==> Starting HAProxy (first install)"
+  systemctl start haproxy
+fi
+systemctl restart "${APP_NAME}"
 
 echo "==> Done"
 echo "Edit ${APP_ENV_FILE} and set API_KEY before exposing the API."

@@ -10,6 +10,7 @@ import (
 var (
 	namePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{3,64}$`)
 	userPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]{1,31}$`)
+	dbPattern   = regexp.MustCompile(`^[a-zA-Z0-9_]{1,64}$`)
 )
 
 func ValidateDeployRequest(req *DeployRequest) error {
@@ -17,6 +18,8 @@ func ValidateDeployRequest(req *DeployRequest) error {
 	req.ClusterName = strings.TrimSpace(req.ClusterName)
 	req.PrimaryIP = strings.TrimSpace(req.PrimaryIP)
 	req.SSHUser = strings.TrimSpace(req.SSHUser)
+	req.NewUser = strings.TrimSpace(req.NewUser)
+	req.NewDB = strings.TrimSpace(req.NewDB)
 	if req.ClusterName == "" {
 		req.ClusterName = "prodCluster"
 	}
@@ -39,6 +42,25 @@ func ValidateDeployRequest(req *DeployRequest) error {
 	}
 	if !userPattern.MatchString(req.SSHUser) {
 		return fmt.Errorf("ssh_user must match %s", userPattern.String())
+	}
+	if req.NewUser != "" && !userPattern.MatchString(req.NewUser) {
+		return fmt.Errorf("new_user must match %s", userPattern.String())
+	}
+	if req.NewDB != "" && !dbPattern.MatchString(req.NewDB) {
+		return fmt.Errorf("new_db must match %s", dbPattern.String())
+	}
+
+	hasInitDBInput := req.NewUser != "" || req.NewDB != "" || strings.TrimSpace(req.NewUserPassword) != ""
+	if hasInitDBInput {
+		if req.NewUser == "" {
+			return fmt.Errorf("new_user is required when init DB fields are provided")
+		}
+		if strings.TrimSpace(req.NewUserPassword) == "" {
+			return fmt.Errorf("new_user_password is required when init DB fields are provided")
+		}
+		if req.NewDB == "" {
+			return fmt.Errorf("new_db is required when init DB fields are provided")
+		}
 	}
 
 	if net.ParseIP(req.PrimaryIP) == nil {
@@ -81,6 +103,7 @@ func ValidateResumeSecrets(req ResumeRequest) (SecretInput, error) {
 		RootPassword:         strings.TrimSpace(req.RootPassword),
 		ClusterAdminPassword: strings.TrimSpace(req.ClusterAdminPassword),
 		SSHPassword:          strings.TrimSpace(req.SSHPassword),
+		NewUserPassword:      strings.TrimSpace(req.NewUserPassword),
 	}
 	if secret.RootPassword == "" || secret.ClusterAdminPassword == "" || secret.SSHPassword == "" {
 		return SecretInput{}, fmt.Errorf("root_password, cluster_admin_password, and ssh_password are required")

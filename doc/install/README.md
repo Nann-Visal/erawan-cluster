@@ -27,3 +27,7 @@ All guides use the same production layout:
    - `/etc/erawan-cluster/.env` as `0640` and owned by `root:erawan`
    - `/var/lib/erawan-cluster` as `0750`
 7. For internet-exposed environments, terminate TLS in front of API.
+
+## HAProxy rollout behavior
+- Installers configure HAProxy for hot reload.
+- Runtime updates should use `reload` (no restart) to avoid dropping active connections.

@@ -14,6 +14,7 @@ REST API written in Go for:
     - [API VM (this service host)](#api-vm-this-service-host)
     - [MySQL target nodes](#mysql-target-nodes)
     - [User / Permission Model](#user--permission-model)
+    - [HAProxy Default Config Guide](#haproxy-default-config-guide)
   - [Install](#install)
     - [1) Clone](#1-clone)
     - [2) Install dependencies (Ubuntu example)](#2-install-dependencies-ubuntu-example)
@@ -92,9 +93,15 @@ If your HAProxy package does not support `include`, load tenant files via `/etc/
 CONFIG="/etc/haproxy/haproxy.cfg -f /etc/haproxy/tenants"
 ```
 
+Recommended for stable hot reload behavior:
+- add a systemd override at `/etc/systemd/system/haproxy.service.d/override.conf`
+- set both `ExecStart` and `ExecReload` to include both config paths:
+  - `/etc/haproxy/haproxy.cfg`
+  - tenant directory path (`TENANTS_DIR`)
+
 Then align API env:
 - `TENANTS_DIR=/etc/haproxy/tenants`
-- `HAPROXY_RELOAD_CMD=/bin/systemctl reload haproxy`
+- `HAPROXY_RELOAD_CMD=sudo /bin/systemctl reload haproxy`
 
 ## Install
 
@@ -107,7 +114,7 @@ cd erawan-cluster
 ### 2) Install dependencies (Ubuntu example)
 ```bash
 sudo apt update
-sudo apt install -y golang-go ansible haproxy
+sudo apt install -y golang-go ansible haproxy sshpass mysql-client -y
 ```
 
 ### 3) Download Go modules
@@ -135,6 +142,7 @@ Installer behavior:
 - Creates runtime state directories under `/var/lib/erawan-cluster`.
 - Creates `/etc/erawan-cluster/.env` (if missing).
 - Configures HAProxy to load tenant files from `/var/lib/erawan-cluster/haproxy/tenants`.
+- Configures HAProxy systemd override for hot reload (no restart) with tenant directory.
 - Creates systemd service `erawan-cluster`.
 
 OS-specific production runbooks:
@@ -246,6 +254,10 @@ curl -X POST http://127.0.0.1:8080/cluster/mysql/deploy \
     "cluster_name": "prodCluster",
     "primary_ip": "10.10.10.1",
     "secondary_ips": ["10.10.10.2", "10.10.10.3"],
+    "new_user": "appuser",
+    "new_user_password": "AppUser#2026",
+    "new_user_ssl_required": true,
+    "new_db": "appdb",
     "assume_prepared": false,
     "bootstrap_router": true,
     "ssh_user": "root",
@@ -267,6 +279,10 @@ curl -X POST http://127.0.0.1:8080/cluster/mysql/deploy \
     "cluster_name": "prodCluster",
     "primary_ip": "10.10.10.1",
     "secondary_ips": [],
+    "new_user": "appuser",
+    "new_user_password": "AppUser#2026",
+    "new_user_ssl_required": false,
+    "new_db": "appdb",
     "assume_prepared": false,
     "bootstrap_router": true,
     "ssh_user": "root",
@@ -283,6 +299,8 @@ Automation note:
 - `secondary_ips` can be empty for a primary-only (non-HA) deployment.
 - `assume_prepared=true` skips `preflight` and `configure_instances` when nodes are already prepared.
 - `bootstrap_router` defaults to `true` when omitted.
+- `new_user` + `new_user_password` + `new_db` are optional; when provided, API creates DB/user at final step.
+- `new_user_ssl_required` controls whether created user has `REQUIRE SSL`.
 
 Pre-check checklist (before API deploy):
 1. `root` can connect remotely from API VM to every MySQL node.
@@ -294,8 +312,10 @@ Resume example:
 curl -X POST http://127.0.0.1:8080/cluster/mysql/jobs/<job-id>/resume \
   -H 'Content-Type: application/json' \
   -d '{
+    "root_password": "RootPass#2026",
     "cluster_admin_password": "ClusterAdmin#2026",
-    "ssh_password": "password"
+    "ssh_password": "password",
+    "new_user_password": "AppUser#2026"
   }'
 ```
 
@@ -323,6 +343,7 @@ Deployment steps:
 - `add_instances`
 - `bootstrap_router` (skipped when `bootstrap_router=false`)
 - `verify_cluster`
+- `init_app_db` (skipped when `new_user/new_db` are not provided)
 
 Step purpose:
 - `preflight`: verifies `mysqlsh` and MySQL root connectivity.
@@ -331,11 +352,13 @@ Step purpose:
 - `add_instances`: adds secondary nodes with clone recovery.
 - `bootstrap_router`: bootstraps and configures mysqlrouter service on DB nodes.
 - `verify_cluster`: installs/runs status script and prints cluster status from MySQL Shell.
+- `init_app_db`: creates application database and app user on primary.
 
 Step skip behavior:
 - `preflight` and `configure_instances` are skipped when `assume_prepared=true`
 - `add_instances` is skipped when `secondary_ips` is empty
 - `bootstrap_router` is skipped when `bootstrap_router=false`
+- `init_app_db` is skipped when `new_user/new_db` are not provided
 
 Debugging Ansible step crashes:
 - Set `MYSQL_ANSIBLE_DEBUG=true` and restart API service to stream live Ansible logs into systemd/journal logs.
