@@ -44,9 +44,6 @@ func ValidateDeployRequest(req *DeployRequest) error {
 	if net.ParseIP(req.PrimaryIP) == nil {
 		return fmt.Errorf("primary_ip must be a valid IP address")
 	}
-	if len(req.SecondaryIPs) == 0 {
-		return fmt.Errorf("secondary_ips must contain at least one IP")
-	}
 	seen := map[string]struct{}{req.PrimaryIP: {}}
 	for i, ip := range req.SecondaryIPs {
 		ip = strings.TrimSpace(ip)

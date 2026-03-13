@@ -18,6 +18,7 @@ REST API written in Go for:
     - [1) Clone](#1-clone)
     - [2) Install dependencies (Ubuntu example)](#2-install-dependencies-ubuntu-example)
     - [3) Download Go modules](#3-download-go-modules)
+    - [4) Production installers (Ubuntu/Debian/Rocky)](#4-production-installers-ubuntudebianrocky)
   - [Run](#run)
     - [Run directly](#run-directly)
     - [Build binary](#build-binary)
@@ -80,6 +81,21 @@ No fixed Linux username is required. Use either:
 
 If you run the API as non-root, grant a sudoers rule (NOPASSWD) for the reload command.
 
+### HAProxy Default Config Guide
+Use this in `/etc/haproxy/haproxy.cfg` under the `global` block:
+```cfg
+stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+```
+
+If your HAProxy package does not support `include`, load tenant files via `/etc/default/haproxy`:
+```bash
+CONFIG="/etc/haproxy/haproxy.cfg -f /etc/haproxy/tenants"
+```
+
+Then align API env:
+- `TENANTS_DIR=/etc/haproxy/tenants`
+- `HAPROXY_RELOAD_CMD=/bin/systemctl reload haproxy`
+
 ## Install
 
 ### 1) Clone
@@ -98,6 +114,33 @@ sudo apt install -y golang-go ansible haproxy
 ```bash
 go mod tidy
 ```
+
+### 4) Production installers (Ubuntu/Debian/Rocky)
+Build binary first:
+```bash
+make build
+```
+
+Run one installer script as `root` from repo directory:
+```bash
+sudo bash scripts/install-ubuntu.sh
+sudo bash scripts/install-debian.sh
+sudo bash scripts/install-rocky.sh
+```
+
+Installer behavior:
+- Creates non-root service account: `erawan`.
+- Installs API binary to `/usr/local/bin/erawan-cluster`.
+- Installs playbooks to `/opt/erawan-cluster/cluster`.
+- Creates runtime state directories under `/var/lib/erawan-cluster`.
+- Creates `/etc/erawan-cluster/.env` (if missing).
+- Configures HAProxy to load tenant files from `/var/lib/erawan-cluster/haproxy/tenants`.
+- Creates systemd service `erawan-cluster`.
+
+OS-specific production runbooks:
+- `doc/install/ubuntu.md`
+- `doc/install/debian.md`
+- `doc/install/rocky.md`
 
 ## Run
 
@@ -213,9 +256,31 @@ curl -X POST http://127.0.0.1:8080/cluster/mysql/deploy \
   }'
 ```
 
+Primary-only (no standby) example:
+```bash
+curl -X POST http://127.0.0.1:8080/cluster/mysql/deploy \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "root_password": "RootPass#2026",
+    "cluster_admin_username": "clusteradmin",
+    "cluster_admin_password": "ClusterAdmin#2026",
+    "cluster_name": "prodCluster",
+    "primary_ip": "10.10.10.1",
+    "secondary_ips": [],
+    "assume_prepared": false,
+    "bootstrap_router": true,
+    "ssh_user": "root",
+    "ssh_password": "password",
+    "ssh_port": 22,
+    "mysql_port": 3306,
+    "step_timeout_seconds": 900
+  }'
+```
+
 Automation note:
 - Deploy automation now handles `doc/mysql.md` Step 1, 4, 5, 6, 7, 8, and 10 through Ansible.
 - `cluster_name` defaults to `prodCluster` when omitted.
+- `secondary_ips` can be empty for a primary-only (non-HA) deployment.
 - `assume_prepared=true` skips `preflight` and `configure_instances` when nodes are already prepared.
 - `bootstrap_router` defaults to `true` when omitted.
 
@@ -269,6 +334,7 @@ Step purpose:
 
 Step skip behavior:
 - `preflight` and `configure_instances` are skipped when `assume_prepared=true`
+- `add_instances` is skipped when `secondary_ips` is empty
 - `bootstrap_router` is skipped when `bootstrap_router=false`
 
 Debugging Ansible step crashes:
@@ -308,3 +374,8 @@ make run    # run API
 
 ## Extra Documentation
 - MySQL manual setup and operational notes: `doc/mysql.md`
+- Production install runbooks:
+  - `doc/install/README.md`
+  - `doc/install/ubuntu.md`
+  - `doc/install/debian.md`
+  - `doc/install/rocky.md`

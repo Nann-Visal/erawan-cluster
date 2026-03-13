@@ -1,0 +1,72 @@
+# Rocky Linux Production Install (9+)
+
+## 1) Prepare host
+```bash
+sudo dnf install -y git curl
+```
+
+## 2) Get source and build binary
+```bash
+git clone <repo-url> erawan-cluster
+cd erawan-cluster
+make build
+```
+
+## 3) Run installer
+```bash
+sudo bash scripts/install-rocky.sh
+```
+
+Custom artifact paths:
+```bash
+sudo BIN_SRC=/path/to/erawan-cluster CLUSTER_SRC=/path/to/cluster bash scripts/install-rocky.sh
+```
+
+## 4) Configure API env
+```bash
+sudo nano /etc/erawan-cluster/.env
+```
+
+Set at minimum:
+```env
+ENV=prod
+API_HOST=127.0.0.1
+API_PORT=8080
+API_KEY=<long-random-key>
+TENANTS_DIR=/var/lib/erawan-cluster/haproxy/tenants
+HAPROXY_RELOAD_CMD=/bin/systemctl reload haproxy
+CLUSTER_STATE_DIR=/var/lib/erawan-cluster/cluster/jobs
+MYSQL_DEPLOY_PLAYBOOK=/opt/erawan-cluster/cluster/mysql/playbooks/deploy.yml
+MYSQL_ROLLBACK_PLAYBOOK=/opt/erawan-cluster/cluster/mysql/playbooks/rollback.yml
+```
+
+## 5) Reload services
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart haproxy
+sudo systemctl restart erawan-cluster
+```
+
+## 6) Verify
+```bash
+sudo systemctl status erawan-cluster --no-pager
+sudo systemctl status haproxy --no-pager
+curl -s http://127.0.0.1:8080/health
+sudo ss -lntp | grep -E ':8080|:25000|:6446' || true
+```
+
+## 7) Live logs
+```bash
+sudo journalctl -u erawan-cluster -f
+sudo journalctl -u haproxy -f
+```
+
+## Rocky HAProxy notes
+1. Installer adds systemd override at:
+   - `/etc/systemd/system/haproxy.service.d/override.conf`
+2. HAProxy is started with both config sources:
+   - `/etc/haproxy/haproxy.cfg`
+   - `/var/lib/erawan-cluster/haproxy/tenants`
+3. On SELinux enforcing hosts, installer attempts:
+   - `semanage fcontext ...` + `restorecon`
+   - `setsebool -P haproxy_connect_any 1`

@@ -211,6 +211,9 @@ func (s *Service) executeFrom(ctx context.Context, job *Job, startIndex int, sec
 }
 
 func shouldSkipStep(st step, spec StoredSpec) (string, bool) {
+	if st.Name == "add_instances" && len(spec.SecondaryIPs) == 0 {
+		return "secondary_ips is empty", true
+	}
 	if st.Skippable && !spec.BootstrapRouter {
 		return "bootstrap_router is false", true
 	}
