@@ -1,0 +1,82 @@
+- name: Check PostgreSQL service is enabled
+  ansible.builtin.command:
+    argv: [systemctl, is-enabled, "{{ postgresql_service_name }}"]
+  register: pgsql_service_enabled
+  changed_when: false
+  failed_when: pgsql_service_enabled.rc != 0
+  tags: ["verify_cluster"]
+
+- name: Check repmgrd service is enabled
+  ansible.builtin.command:
+    argv: [systemctl, is-enabled, repmgrd]
+  register: repmgrd_enabled
+  changed_when: false
+  failed_when: repmgrd_enabled.rc != 0
+  tags: ["verify_cluster"]
+
+- name: Check pg-auto-rejoin service is enabled
+  ansible.builtin.command:
+    argv: [systemctl, is-enabled, pg-auto-rejoin.service]
+  register: auto_rejoin_enabled
+  changed_when: false
+  failed_when: auto_rejoin_enabled.rc != 0
+  tags: ["verify_cluster"]
+
+- name: Check repmgrd is active
+  ansible.builtin.command:
+    argv: [systemctl, is-active, repmgrd]
+  register: repmgrd_active
+  changed_when: false
+  failed_when: repmgrd_active.rc != 0
+  tags: ["verify_cluster"]
+
+- name: Show cluster state via repmgr
+  ansible.builtin.command:
+    argv:
+      - sudo
+      - -u
+      - postgres
+      - repmgr
+      - -f
+      - "{{ repmgr_conf_path }}"
+      - cluster
+      - show
+  register: repmgr_cluster_show
+  changed_when: false
+  tags: ["verify_cluster"]
+
+- name: Count active nodes in repmgr metadata
+  ansible.builtin.shell: |
+    set -euo pipefail
+    sudo -u postgres psql -d {{ repmgr_db }} -Atqc "SELECT count(*) FROM repmgr.nodes WHERE active IS TRUE;"
+  args:
+    executable: /bin/bash
+  register: repmgr_active_nodes
+  changed_when: false
+  tags: ["verify_cluster"]
+
+- name: Ensure all cluster nodes are registered
+  ansible.builtin.assert:
+    that:
+      - repmgr_active_nodes.stdout | int >= (standby_ips | length + 1)
+    fail_msg: "Expected at least {{ standby_ips | length + 1 }} active nodes in repmgr metadata"
+  tags: ["verify_cluster"]
+
+- name: Count replication senders on primary
+  ansible.builtin.shell: |
+    set -euo pipefail
+    sudo -u postgres psql -Atqc "SELECT count(*) FROM pg_stat_replication;"
+  args:
+    executable: /bin/bash
+  register: pgsql_replication_count
+  changed_when: false
+  when: (standby_ips | length) > 0
+  tags: ["verify_cluster"]
+
+- name: Ensure expected replication connections exist
+  ansible.builtin.assert:
+    that:
+      - pgsql_replication_count.stdout | int >= (standby_ips | length)
+    fail_msg: "Expected at least {{ standby_ips | length }} replication connections on primary"
+  when: (standby_ips | length) > 0
+  tags: ["verify_cluster"]

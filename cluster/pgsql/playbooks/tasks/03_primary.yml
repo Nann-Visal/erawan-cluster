@@ -1,0 +1,76 @@
+- name: Write repmgr configuration on primary
+  ansible.builtin.copy:
+    dest: "{{ repmgr_conf_path }}"
+    mode: "0644"
+    content: |
+      node_id={{ erawan_pg_node_id }}
+      node_name='{{ erawan_pg_node_name }}'
+      conninfo='host={{ ansible_host }} user={{ repmgr_user }} dbname={{ repmgr_db }} password={{ repmgr_password }} connect_timeout=2'
+      data_directory='{{ postgresql_data_directory }}'
+      pg_bindir='{{ postgresql_bindir }}'
+
+      failover=automatic
+      promote_command='/usr/bin/repmgr standby promote -f {{ repmgr_conf_path }}'
+      follow_command='/usr/bin/repmgr standby follow -f {{ repmgr_conf_path }} -W --upstream-node-id=%n'
+
+      reconnect_attempts=4
+      reconnect_interval=5
+
+      service_start_command='sudo systemctl start {{ postgresql_service_name }}'
+      service_stop_command='sudo systemctl stop {{ postgresql_service_name }}'
+      service_restart_command='sudo systemctl restart {{ postgresql_service_name }}'
+      service_reload_command='sudo systemctl reload {{ postgresql_service_name }}'
+
+      monitoring_history=yes
+      monitor_interval_secs=2
+
+      log_level=INFO
+      log_file='/var/log/repmgr/repmgr.log'
+  tags: ["primary_config"]
+
+- name: Ensure repmgr role and database exist on primary
+  ansible.builtin.shell: |
+    set -euo pipefail
+    sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ repmgr_user }}') THEN
+        EXECUTE format('CREATE ROLE %I WITH REPLICATION LOGIN PASSWORD %L SUPERUSER', '{{ repmgr_user }}', '{{ repmgr_password }}');
+      ELSE
+        EXECUTE format('ALTER ROLE %I WITH REPLICATION LOGIN PASSWORD %L SUPERUSER', '{{ repmgr_user }}', '{{ repmgr_password }}');
+      END IF;
+    END
+    $$;
+
+    SELECT format('CREATE DATABASE %I OWNER %I', '{{ repmgr_db }}', '{{ repmgr_user }}')
+    WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = '{{ repmgr_db }}') \gexec
+
+    ALTER DATABASE "{{ repmgr_db }}" OWNER TO "{{ repmgr_user }}";
+    GRANT ALL PRIVILEGES ON DATABASE "{{ repmgr_db }}" TO "{{ repmgr_user }}";
+    SQL
+  args:
+    executable: /bin/bash
+  changed_when: false
+  tags: ["primary_config"]
+
+- name: Register primary node in repmgr metadata
+  ansible.builtin.command:
+    argv:
+      - sudo
+      - -u
+      - postgres
+      - repmgr
+      - -f
+      - "{{ repmgr_conf_path }}"
+      - primary
+      - register
+      - --force
+  register: repmgr_primary_register
+  changed_when: repmgr_primary_register.rc == 0
+  tags: ["primary_config"]
+
+- name: Ensure repmgrd is running on primary
+  ansible.builtin.systemd:
+    name: repmgrd
+    state: started
+  tags: ["primary_config"]

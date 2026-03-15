@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>erawan-cluster (Go)</title>
+  <title>erawan-cluster (Go) v1.01</title>
   <style>
     body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif; margin: 0; background: #f6f8fb; color: #111827; }
     .wrap { max-width: 980px; margin: 0 auto; padding: 28px 20px 60px; }
@@ -16,8 +16,8 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>erawan-cluster (Go)</h1>
-    <p>Go REST API for dynamic HAProxy config and MySQL cluster automation via Ansible.</p>
+    <h1>erawan-cluster (Go) v1.01</h1>
+    <p>Go REST API for dynamic HAProxy config plus MySQL and PostgreSQL cluster automation via Ansible.</p>
 
     <h2>Run</h2>
     <div class="card">
@@ -47,7 +47,15 @@ POST /cluster/mysql/jobs/{jobID}/resume
 POST /cluster/mysql/jobs/{jobID}/rollback</code></pre>
     </div>
 
-    <h2>Deploy Payload</h2>
+    <h2>PostgreSQL Cluster Endpoints</h2>
+    <div class="card">
+<pre><code>POST /cluster/pgsql/deploy
+GET  /cluster/pgsql/jobs
+GET  /cluster/pgsql/jobs/{jobID}
+POST /cluster/pgsql/jobs/{jobID}/resume</code></pre>
+    </div>
+
+    <h2>MySQL Deploy Payload</h2>
     <div class="card">
 <pre><code>{
   "root_password": "RootPass#2026",
@@ -61,6 +69,24 @@ POST /cluster/mysql/jobs/{jobID}/rollback</code></pre>
   "ssh_user": "root",
   "ssh_password": "password",
   "ssh_port": 22
+}</code></pre>
+    </div>
+
+    <h2>PostgreSQL Deploy Payload</h2>
+    <div class="card">
+<pre><code>{
+  "cluster_name": "pgcluster",
+  "primary_ip": "192.168.122.154",
+  "standby_ips": ["192.168.122.111"],
+  "repmgr_password": "Repmgr#2026",
+  "new_user": "appuser",
+  "new_user_password": "AppUser#2026",
+  "new_db": "appdb",
+  "ssh_user": "root",
+  "ssh_password": "password",
+  "ssh_port": 22,
+  "postgres_port": 5432,
+  "step_timeout_seconds": 900
 }</code></pre>
     </div>
   </div>

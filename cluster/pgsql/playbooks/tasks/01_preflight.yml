@@ -1,0 +1,30 @@
+- name: Ensure psql is installed
+  ansible.builtin.command:
+    argv: [psql, --version]
+  register: psql_check
+  changed_when: false
+  failed_when: psql_check.rc != 0
+  tags: ["preflight"]
+
+- name: Ensure repmgr is installed
+  ansible.builtin.command:
+    argv: [repmgr, --version]
+  register: repmgr_check
+  changed_when: false
+  failed_when: repmgr_check.rc != 0
+  tags: ["preflight"]
+
+- name: Ensure repmgrd binary is installed
+  ansible.builtin.command:
+    argv: [repmgrd, --version]
+  register: repmgrd_check
+  changed_when: false
+  failed_when: repmgrd_check.rc != 0
+  tags: ["preflight"]
+
+- name: Ensure PostgreSQL configuration directory exists
+  ansible.builtin.stat:
+    path: "/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster_name }}"
+  register: pgsql_conf_dir
+  failed_when: not pgsql_conf_dir.stat.exists
+  tags: ["preflight"]

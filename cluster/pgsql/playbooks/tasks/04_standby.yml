@@ -1,0 +1,114 @@
+- name: Write repmgr configuration on standby
+  ansible.builtin.copy:
+    dest: "{{ repmgr_conf_path }}"
+    mode: "0644"
+    content: |
+      node_id={{ erawan_pg_node_id }}
+      node_name='{{ erawan_pg_node_name }}'
+      conninfo='host={{ ansible_host }} user={{ repmgr_user }} dbname={{ repmgr_db }} password={{ repmgr_password }} connect_timeout=2'
+      data_directory='{{ postgresql_data_directory }}'
+      pg_bindir='{{ postgresql_bindir }}'
+
+      failover=automatic
+      promote_command='/usr/bin/repmgr standby promote -f {{ repmgr_conf_path }}'
+      follow_command='/usr/bin/repmgr standby follow -f {{ repmgr_conf_path }} -W --upstream-node-id=%n'
+
+      reconnect_attempts=4
+      reconnect_interval=5
+
+      service_start_command='sudo systemctl start {{ postgresql_service_name }}'
+      service_stop_command='sudo systemctl stop {{ postgresql_service_name }}'
+      service_restart_command='sudo systemctl restart {{ postgresql_service_name }}'
+      service_reload_command='sudo systemctl reload {{ postgresql_service_name }}'
+
+      monitoring_history=yes
+      monitor_interval_secs=2
+
+      log_level=INFO
+      log_file='/var/log/repmgr/repmgr.log'
+  tags: ["standby_config"]
+
+- name: Detect whether standby is already in recovery
+  ansible.builtin.shell: |
+    set -o pipefail
+    sudo -u postgres psql -Atqc "SELECT pg_is_in_recovery();" 2>/dev/null | tr -d '[:space:]'
+  args:
+    executable: /bin/bash
+  register: pgsql_recovery_state
+  changed_when: false
+  failed_when: false
+  tags: ["standby_config"]
+
+- name: Stop PostgreSQL before standby clone
+  ansible.builtin.systemd:
+    name: "{{ postgresql_service_name }}"
+    state: stopped
+  when: pgsql_recovery_state.stdout != "t"
+  tags: ["standby_config"]
+
+- name: Stop repmgrd before standby clone
+  ansible.builtin.systemd:
+    name: repmgrd
+    state: stopped
+  failed_when: false
+  when: pgsql_recovery_state.stdout != "t"
+  tags: ["standby_config"]
+
+- name: Clone standby from primary
+  ansible.builtin.command:
+    argv:
+      - sudo
+      - -u
+      - postgres
+      - repmgr
+      - -h
+      - "{{ primary_ip }}"
+      - -U
+      - "{{ repmgr_user }}"
+      - -d
+      - "{{ repmgr_db }}"
+      - -f
+      - "{{ repmgr_conf_path }}"
+      - standby
+      - clone
+      - --force
+  when: pgsql_recovery_state.stdout != "t"
+  register: repmgr_clone
+  changed_when: repmgr_clone.rc == 0
+  tags: ["standby_config"]
+
+- name: Ensure PostgreSQL is running on standby
+  ansible.builtin.systemd:
+    name: "{{ postgresql_service_name }}"
+    state: started
+  tags: ["standby_config"]
+
+- name: Wait for standby PostgreSQL to listen
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ postgres_port }}"
+    state: started
+    timeout: 120
+  tags: ["standby_config"]
+
+- name: Register standby node in repmgr metadata
+  ansible.builtin.command:
+    argv:
+      - sudo
+      - -u
+      - postgres
+      - repmgr
+      - -f
+      - "{{ repmgr_conf_path }}"
+      - standby
+      - register
+      - --force
+  register: repmgr_standby_register
+  changed_when: repmgr_standby_register.rc == 0
+  tags: ["standby_config"]
+
+- name: Ensure repmgrd is running on standby
+  ansible.builtin.systemd:
+    name: repmgrd
+    state: started
+  tags: ["standby_config"]

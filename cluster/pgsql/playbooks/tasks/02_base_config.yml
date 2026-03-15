@@ -1,0 +1,160 @@
+- name: Derive per-node PostgreSQL cluster facts
+  ansible.builtin.set_fact:
+    erawan_pg_node_id: "{{ (groups['all'] | list).index(inventory_hostname) + 1 }}"
+    erawan_pg_node_delay: "{{ 20 * ((groups['all'] | list).index(inventory_hostname) + 1) }}"
+    erawan_pg_node_name: >-
+      {{ cluster_name }}-{{
+        'primary'
+        if inventory_hostname in groups['pgsql_primary']
+        else 'standby' ~ ((groups['pgsql_standby'] | list).index(inventory_hostname) + 1)
+      }}
+    erawan_pg_other_node_ips: "{{ (groups['all'] | map('extract', hostvars, 'ansible_host') | list) | difference([ansible_host]) }}"
+  tags: ["base_config"]
+
+- name: Ensure repmgr log directory exists
+  ansible.builtin.file:
+    path: /var/log/repmgr
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0755"
+  tags: ["base_config"]
+
+- name: Ensure repmgr log file exists
+  ansible.builtin.file:
+    path: /var/log/repmgr/repmgr.log
+    state: touch
+    owner: postgres
+    group: postgres
+    mode: "0644"
+  tags: ["base_config"]
+
+- name: Comment any active listen_addresses lines
+  ansible.builtin.replace:
+    path: "/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster_name }}/postgresql.conf"
+    regexp: '^(?!#)(\s*listen_addresses\s*=.*)$'
+    replace: '#\1'
+  register: pgsql_listen_replace
+  tags: ["base_config"]
+
+- name: Ensure PostgreSQL HA settings are present
+  ansible.builtin.blockinfile:
+    path: "/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster_name }}/postgresql.conf"
+    marker: "# {mark} ERAWAN PGSQL HA"
+    block: |
+      listen_addresses = '*'
+      wal_level = replica
+      max_wal_senders = 10
+      max_replication_slots = 10
+      hot_standby = on
+      wal_log_hints = on
+      archive_mode = off
+      shared_preload_libraries = 'repmgr'
+  register: pgsql_ha_conf
+  tags: ["base_config"]
+
+- name: Ensure PostgreSQL client access rules are present
+  ansible.builtin.blockinfile:
+    path: "/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster_name }}/pg_hba.conf"
+    marker: "# {mark} ERAWAN PGSQL HBA"
+    block: |
+      host    all             all             0.0.0.0/0               scram-sha-256
+      host    replication     {{ repmgr_user }}          0.0.0.0/0               scram-sha-256
+      host    {{ repmgr_db }}          {{ repmgr_user }}          0.0.0.0/0               scram-sha-256
+  register: pgsql_hba_conf
+  tags: ["base_config"]
+
+- name: Enable repmgrd in defaults file
+  ansible.builtin.lineinfile:
+    path: /etc/default/repmgrd
+    regexp: '^REPMGRD_ENABLED='
+    line: REPMGRD_ENABLED=yes
+  register: repmgrd_default
+  tags: ["base_config"]
+
+- name: Mask wrapper PostgreSQL service
+  ansible.builtin.systemd:
+    name: postgresql.service
+    masked: true
+  tags: ["base_config"]
+
+- name: Allow postgres user to control versioned PostgreSQL service
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/postgres-repmgr
+    mode: "0440"
+    content: |
+      postgres ALL=(ALL) NOPASSWD: /bin/systemctl start {{ postgresql_service_name }}, /bin/systemctl stop {{ postgresql_service_name }}, /bin/systemctl restart {{ postgresql_service_name }}, /bin/systemctl reload {{ postgresql_service_name }}
+  tags: ["base_config"]
+
+- name: Install postgres .pgpass for repmgr connections
+  ansible.builtin.copy:
+    dest: /var/lib/postgresql/.pgpass
+    owner: postgres
+    group: postgres
+    mode: "0600"
+    content: |
+      {% for host_name in groups['all'] %}
+      {{ hostvars[host_name].ansible_host }}:{{ postgres_port }}:{{ repmgr_db }}:{{ repmgr_user }}:{{ repmgr_password }}
+      {{ hostvars[host_name].ansible_host }}:{{ postgres_port }}:replication:{{ repmgr_user }}:{{ repmgr_password }}
+      {% endfor %}
+      *:{{ postgres_port }}:{{ repmgr_db }}:{{ repmgr_user }}:{{ repmgr_password }}
+      *:{{ postgres_port }}:replication:{{ repmgr_user }}:{{ repmgr_password }}
+  tags: ["base_config"]
+
+- name: Install repmgrd systemd unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/repmgrd.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=repmgrd - replication manager daemon for PostgreSQL
+      After=network.target {{ postgresql_service_name }}.service
+      Wants={{ postgresql_service_name }}.service
+
+      [Service]
+      Type=forking
+      User=postgres
+      ExecStart=/usr/bin/repmgrd -f {{ repmgr_conf_path }} --daemonize
+      ExecReload=/bin/kill -HUP $MAINPID
+      PIDFile=/tmp/repmgrd.pid
+      Restart=on-failure
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+  register: repmgrd_unit
+  tags: ["base_config"]
+
+- name: Reload systemd units
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: repmgrd_unit.changed
+  tags: ["base_config"]
+
+- name: Restart PostgreSQL after HA configuration changes
+  ansible.builtin.systemd:
+    name: "{{ postgresql_service_name }}"
+    state: restarted
+  when: pgsql_listen_replace.changed or pgsql_ha_conf.changed or pgsql_hba_conf.changed
+  tags: ["base_config"]
+
+- name: Ensure PostgreSQL service is enabled and running
+  ansible.builtin.systemd:
+    name: "{{ postgresql_service_name }}"
+    enabled: true
+    state: started
+  tags: ["base_config"]
+
+- name: Ensure repmgrd service is enabled
+  ansible.builtin.systemd:
+    name: repmgrd
+    enabled: true
+  tags: ["base_config"]
+
+- name: Wait for PostgreSQL to listen
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ postgres_port }}"
+    state: started
+    timeout: 120
+  tags: ["base_config"]

@@ -6,24 +6,27 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	mysqlcluster "erawan-cluster/internal/cluster/mysql"
+	pgsqlcluster "erawan-cluster/internal/cluster/pgsql"
 	"erawan-cluster/internal/haproxy"
 	"erawan-cluster/internal/security"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 type application struct {
 	config       config
 	haproxy      *haproxy.Service
 	mysqlCluster *mysqlcluster.Service
+	pgsqlCluster *pgsqlcluster.Service
 	baseDir      string
 }
 
 type config struct {
-	addr   string
-	env    string
-	apiKey string
+	addr    string
+	env     string
+	apiKey  string
+	version string
 }
 
 func (app *application) mount() *chi.Mux {
@@ -52,6 +55,13 @@ func (app *application) mount() *chi.Mux {
 		r.Get("/jobs/{jobID}", app.getMySQLClusterJobHandler)
 		r.Post("/jobs/{jobID}/resume", app.resumeMySQLClusterJobHandler)
 		r.Post("/jobs/{jobID}/rollback", app.rollbackMySQLClusterJobHandler)
+	})
+
+	r.Route("/cluster/pgsql", func(r chi.Router) {
+		r.Post("/deploy", app.deployPGSQLClusterHandler)
+		r.Get("/jobs", app.listPGSQLClusterJobsHandler)
+		r.Get("/jobs/{jobID}", app.getPGSQLClusterJobHandler)
+		r.Post("/jobs/{jobID}/resume", app.resumePGSQLClusterJobHandler)
 	})
 
 	return r

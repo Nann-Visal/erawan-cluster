@@ -1,0 +1,55 @@
+---
+- name: PostgreSQL cluster preflight
+  hosts: all
+  gather_facts: false
+  become: true
+  serial: 1
+  tasks:
+    - name: Include preflight tasks
+      ansible.builtin.import_tasks: tasks/01_preflight.yml
+
+- name: PostgreSQL cluster base configuration
+  hosts: all
+  gather_facts: false
+  become: true
+  serial: 1
+  tasks:
+    - name: Include base configuration tasks
+      ansible.builtin.import_tasks: tasks/02_base_config.yml
+
+- name: PostgreSQL primary configuration
+  hosts: pgsql_primary
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Include primary configuration tasks
+      ansible.builtin.import_tasks: tasks/03_primary.yml
+
+- name: PostgreSQL standby configuration
+  hosts: pgsql_standby
+  gather_facts: false
+  become: true
+  serial: 1
+  tasks:
+    - name: Include standby configuration tasks
+      ansible.builtin.import_tasks: tasks/04_standby.yml
+
+- name: PostgreSQL auto-rejoin configuration
+  hosts: all
+  gather_facts: false
+  become: true
+  serial: 1
+  tasks:
+    - name: Include auto-rejoin tasks
+      ansible.builtin.import_tasks: tasks/05_auto_rejoin.yml
+
+- name: PostgreSQL cluster final verification
+  hosts: pgsql_primary
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Include verification tasks
+      ansible.builtin.import_tasks: tasks/06_verify_cluster.yml
+
+    - name: Include app database initialization tasks
+      ansible.builtin.import_tasks: tasks/07_init_app_db.yml

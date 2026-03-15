@@ -7,6 +7,7 @@ import (
 	"time"
 
 	mysqlcluster "erawan-cluster/internal/cluster/mysql"
+	pgsqlcluster "erawan-cluster/internal/cluster/pgsql"
 	"erawan-cluster/internal/env"
 	"erawan-cluster/internal/haproxy"
 )
@@ -34,13 +35,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("init mysql cluster store: %v", err)
 	}
+	pgsqlStore, err := pgsqlcluster.NewStore(env.GetString("PGSQL_CLUSTER_STATE_DIR", filepath.Join(stateDir, "pgsql")))
+	if err != nil {
+		log.Fatalf("init pgsql cluster store: %v", err)
+	}
 
 	ansibleBin := env.GetString("ANSIBLE_PLAYBOOK_BIN", "ansible-playbook")
 	deployPlaybook := env.GetString("MYSQL_DEPLOY_PLAYBOOK", filepath.Join(baseDir, "cluster/mysql/playbooks/deploy.yml"))
 	rollbackPlaybook := env.GetString("MYSQL_ROLLBACK_PLAYBOOK", filepath.Join(baseDir, "cluster/mysql/playbooks/rollback.yml"))
-	mysqlAnsibleDebug := env.GetBool("MYSQL_ANSIBLE_DEBUG", false)
-	mysqlAnsibleVerbosity := env.GetInt("MYSQL_ANSIBLE_VERBOSITY", 0)
-	mysqlStepOutputMaxChars := env.GetInt("MYSQL_STEP_OUTPUT_MAX_CHARS", 8000)
+	mysqlAnsibleDebug := env.GetBoolAny([]string{"CLUSTER_ANSIBLE_DEBUG", "MYSQL_ANSIBLE_DEBUG"}, false)
+	mysqlAnsibleVerbosity := env.GetIntAny([]string{"CLUSTER_ANSIBLE_VERBOSITY", "MYSQL_ANSIBLE_VERBOSITY"}, 0)
+	mysqlStepOutputMaxChars := env.GetIntAny([]string{"CLUSTER_STEP_OUTPUT_MAX_CHARS", "MYSQL_STEP_OUTPUT_MAX_CHARS"}, 8000)
 	if mysqlAnsibleDebug && mysqlAnsibleVerbosity <= 0 {
 		mysqlAnsibleVerbosity = 3
 	}
@@ -51,14 +56,30 @@ func main() {
 	runner.SetDebug(mysqlAnsibleVerbosity, mysqlAnsibleDebug, mysqlStepOutputMaxChars)
 	mysqlSvc := mysqlcluster.NewService(store, runner)
 
+	pgsqlDeployPlaybook := env.GetString("PGSQL_DEPLOY_PLAYBOOK", filepath.Join(baseDir, "cluster/pgsql/playbooks/deploy.yml"))
+	pgsqlAnsibleDebug := env.GetBoolAny([]string{"CLUSTER_ANSIBLE_DEBUG", "PGSQL_ANSIBLE_DEBUG"}, false)
+	pgsqlAnsibleVerbosity := env.GetIntAny([]string{"CLUSTER_ANSIBLE_VERBOSITY", "PGSQL_ANSIBLE_VERBOSITY"}, 0)
+	pgsqlStepOutputMaxChars := env.GetIntAny([]string{"CLUSTER_STEP_OUTPUT_MAX_CHARS", "PGSQL_STEP_OUTPUT_MAX_CHARS"}, 8000)
+	if pgsqlAnsibleDebug && pgsqlAnsibleVerbosity <= 0 {
+		pgsqlAnsibleVerbosity = 3
+	}
+	if pgsqlAnsibleDebug && pgsqlStepOutputMaxChars == 8000 {
+		pgsqlStepOutputMaxChars = 200000
+	}
+	pgsqlRunner := pgsqlcluster.NewRunner(ansibleBin, pgsqlDeployPlaybook)
+	pgsqlRunner.SetDebug(pgsqlAnsibleVerbosity, pgsqlAnsibleDebug, pgsqlStepOutputMaxChars)
+	pgsqlSvc := pgsqlcluster.NewService(pgsqlStore, pgsqlRunner)
+
 	app := &application{
 		config: config{
-			addr:   addr,
-			env:    env.GetString("ENV", "dev"),
-			apiKey: env.GetString("API_KEY", ""),
+			addr:    addr,
+			env:     env.GetString("ENV", "dev"),
+			apiKey:  env.GetString("API_KEY", ""),
+			version: appVersion,
 		},
 		haproxy:      haproxySvc,
 		mysqlCluster: mysqlSvc,
+		pgsqlCluster: pgsqlSvc,
 		baseDir:      baseDir,
 	}
 
@@ -66,7 +87,10 @@ func main() {
 	if mysqlAnsibleDebug {
 		log.Printf("mysql ansible debug enabled: verbosity=%d, step_output_max_chars=%d", mysqlAnsibleVerbosity, mysqlStepOutputMaxChars)
 	}
-	log.Printf("erawan cluster api started at %s", addr)
+	if pgsqlAnsibleDebug {
+		log.Printf("pgsql ansible debug enabled: verbosity=%d, step_output_max_chars=%d", pgsqlAnsibleVerbosity, pgsqlStepOutputMaxChars)
+	}
+	log.Printf("erawan cluster api v%s started at %s", appVersion, addr)
 	log.Fatal(app.run(mux))
 }
 
