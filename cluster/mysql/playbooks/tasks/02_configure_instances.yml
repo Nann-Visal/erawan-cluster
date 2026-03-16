@@ -141,6 +141,106 @@
   when: not (assume_prepared | default(false) | bool)
   tags: ["configure_instances", "configure_mysql"]
 
+# ── server_uuid regeneration block ────────────────────────────────────────────
+
+- name: Read current server_uuid and datadir
+  ansible.builtin.shell: |
+    set -euo pipefail
+    mysql --protocol=TCP \
+      -h {{ ansible_host | quote }} \
+      -P {{ mysql_port | quote }} \
+      -u root \
+      -Nse "SELECT @@GLOBAL.server_uuid, @@GLOBAL.datadir"
+  args:
+    executable: /bin/bash
+  environment:
+    MYSQL_PWD: "{{ root_password }}"
+  register: mysql_identity_before
+  changed_when: false
+  when: not (assume_prepared | default(false) | bool)
+  tags: ["configure_instances", "configure_mysql"]
+
+- name: Remember current server_uuid and auto.cnf path
+  ansible.builtin.set_fact:
+    erawan_server_uuid_before: "{{ mysql_identity_before.stdout_lines[0].split('\t')[0] }}"
+    erawan_mysql_datadir: "{{ mysql_identity_before.stdout_lines[0].split('\t')[1] }}"
+    erawan_mysql_auto_cnf: "{{ (mysql_identity_before.stdout_lines[0].split('\t')[1] | regex_replace('/+$', '')) ~ '/auto.cnf' }}"
+  when: not (assume_prepared | default(false) | bool)
+  tags: ["configure_instances", "configure_mysql"]
+
+- name: Stop MySQL before regenerating server_uuid
+  ansible.builtin.systemd:
+    name: mysql
+    state: stopped
+  when: not (assume_prepared | default(false) | bool)
+  tags: ["configure_instances", "configure_mysql"]
+
+- name: Generate a new random server_uuid
+  ansible.builtin.command: python3 -c "import uuid; print(str(uuid.uuid4()))"
+  register: erawan_new_server_uuid_raw
+  changed_when: false
+  when: not (assume_prepared | default(false) | bool)
+  tags: ["configure_instances", "configure_mysql"]
+
+- name: Write new server_uuid into auto.cnf (guarantees a fresh UUID on every run)
+  ansible.builtin.copy:
+    dest: "{{ erawan_mysql_auto_cnf }}"
+    content: |
+      [auto]
+      server-uuid={{ erawan_new_server_uuid_raw.stdout | trim }}
+    owner: mysql
+    group: mysql
+    mode: "0644"
+  when: not (assume_prepared | default(false) | bool)
+  tags: ["configure_instances", "configure_mysql"]
+
+- name: Start MySQL after regenerating server_uuid
+  ansible.builtin.systemd:
+    name: mysql
+    state: started
+  when: not (assume_prepared | default(false) | bool)
+  tags: ["configure_instances", "configure_mysql"]
+
+- name: Wait for MySQL after regenerating server_uuid
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ mysql_port }}"
+    state: started
+    timeout: 120
+  when: not (assume_prepared | default(false) | bool)
+  tags: ["configure_instances", "configure_mysql"]
+
+- name: Read server_uuid after regeneration
+  ansible.builtin.shell: |
+    set -euo pipefail
+    mysql --protocol=TCP \
+      -h {{ ansible_host | quote }} \
+      -P {{ mysql_port | quote }} \
+      -u root \
+      -Nse "SELECT @@GLOBAL.server_uuid"
+  args:
+    executable: /bin/bash
+  environment:
+    MYSQL_PWD: "{{ root_password }}"
+  register: mysql_server_uuid_after
+  changed_when: false
+  when: not (assume_prepared | default(false) | bool)
+  tags: ["configure_instances", "configure_mysql"]
+
+- name: Fail when server_uuid did not change after auto.cnf regeneration
+  ansible.builtin.fail:
+    msg: >-
+      server_uuid did not change after rewriting {{ erawan_mysql_auto_cnf }}.
+      old={{ erawan_server_uuid_before }},
+      new={{ mysql_server_uuid_after.stdout | trim }},
+      datadir={{ erawan_mysql_datadir }}
+  when:
+    - not (assume_prepared | default(false) | bool)
+    - (mysql_server_uuid_after.stdout | trim) == erawan_server_uuid_before
+  tags: ["configure_instances", "configure_mysql"]
+
+# ── end server_uuid regeneration block ────────────────────────────────────────
+
 - name: Configure instance for InnoDB Cluster
   ansible.builtin.shell: |
     set -euo pipefail
