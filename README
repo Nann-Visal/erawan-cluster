@@ -243,6 +243,11 @@ Notes:
 - `POST /cluster/mysql/jobs/{jobID}/resume`
 - `POST /cluster/mysql/jobs/{jobID}/rollback`
 
+Job progress fields in MySQL job responses:
+- `completed_steps`: number of deployment steps finished successfully.
+- `total_steps`: number of deployment steps that apply to this job after skip rules.
+- `progress_percent`: integer progress from `0` to `100`.
+
 Deploy example:
 ```bash
 curl -X POST http://127.0.0.1:8080/cluster/mysql/deploy \

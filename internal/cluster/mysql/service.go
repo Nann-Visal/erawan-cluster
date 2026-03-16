@@ -64,6 +64,7 @@ func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 		},
 		Steps: make([]StepResult, 0, len(s.steps)+1),
 	}
+	s.updateJobProgress(job)
 
 	if err := s.store.Save(job); err != nil {
 		return nil, err
@@ -103,6 +104,7 @@ func (s *Service) Resume(ctx context.Context, jobID string, req ResumeRequest) (
 	if startIndex >= len(s.steps) {
 		job.Status = JobStatusCompleted
 		job.Error = ""
+		s.updateJobProgress(job)
 		_ = s.store.Save(job)
 		return job, nil
 	}
@@ -112,6 +114,7 @@ func (s *Service) Resume(ctx context.Context, jobID string, req ResumeRequest) (
 
 	job.Status = JobStatusRunning
 	job.Error = ""
+	s.updateJobProgress(job)
 	if err := s.store.Save(job); err != nil {
 		return nil, err
 	}
@@ -143,6 +146,7 @@ func (s *Service) Rollback(ctx context.Context, jobID string, req RollbackReques
 		job.Status = JobStatusFailed
 		job.Error = result.Message
 	}
+	s.updateJobProgress(job)
 	if err := s.store.Save(job); err != nil {
 		return nil, err
 	}
@@ -150,11 +154,23 @@ func (s *Service) Rollback(ctx context.Context, jobID string, req RollbackReques
 }
 
 func (s *Service) Get(jobID string) (*Job, error) {
-	return s.store.Load(jobID)
+	job, err := s.store.Load(jobID)
+	if err != nil {
+		return nil, err
+	}
+	s.updateJobProgress(job)
+	return job, nil
 }
 
 func (s *Service) List(limit int) ([]Job, error) {
-	return s.store.List(limit)
+	jobs, err := s.store.List(limit)
+	if err != nil {
+		return nil, err
+	}
+	for i := range jobs {
+		s.updateJobProgress(&jobs[i])
+	}
+	return jobs, nil
 }
 
 func (s *Service) executeFrom(ctx context.Context, job *Job, startIndex int, secret SecretInput) error {
@@ -172,6 +188,7 @@ func (s *Service) executeFrom(ctx context.Context, job *Job, startIndex int, sec
 				ExitCode:  0,
 				Message:   reason,
 			})
+			s.updateJobProgress(job)
 			if err := s.store.Save(job); err != nil {
 				return err
 			}
@@ -179,6 +196,7 @@ func (s *Service) executeFrom(ctx context.Context, job *Job, startIndex int, sec
 		}
 
 		job.CurrentStep = st.Name
+		s.updateJobProgress(job)
 		if err := s.store.Save(job); err != nil {
 			return err
 		}
@@ -198,12 +216,14 @@ func (s *Service) executeFrom(ctx context.Context, job *Job, startIndex int, sec
 			if job.Error == "" {
 				job.Error = fmt.Sprintf("step %s failed", st.Name)
 			}
+			s.updateJobProgress(job)
 			_ = s.store.Save(job)
 			return fmt.Errorf(job.Error)
 		}
 
 		job.LastCompletedStep = i
 		job.Error = ""
+		s.updateJobProgress(job)
 		if err := s.store.Save(job); err != nil {
 			return err
 		}
@@ -212,10 +232,48 @@ func (s *Service) executeFrom(ctx context.Context, job *Job, startIndex int, sec
 	job.Status = JobStatusCompleted
 	job.CurrentStep = ""
 	job.Error = ""
+	s.updateJobProgress(job)
 	if err := s.store.Save(job); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (s *Service) updateJobProgress(job *Job) {
+	job.TotalSteps = s.totalStepsFor(job.Request)
+	job.CompletedSteps = completedSteps(job)
+	if job.Status == JobStatusCompleted && job.TotalSteps > 0 {
+		job.CompletedSteps = job.TotalSteps
+	}
+	if job.CompletedSteps > job.TotalSteps {
+		job.CompletedSteps = job.TotalSteps
+	}
+	if job.CompletedSteps < 0 || job.TotalSteps == 0 {
+		job.ProgressPercent = 0
+		return
+	}
+	job.ProgressPercent = job.CompletedSteps * 100 / job.TotalSteps
+}
+
+func (s *Service) totalStepsFor(spec StoredSpec) int {
+	total := 0
+	for _, st := range s.steps {
+		if _, skip := shouldSkipStep(st, spec); skip {
+			continue
+		}
+		total++
+	}
+	return total
+}
+
+func completedSteps(job *Job) int {
+	count := 0
+	for _, step := range job.Steps {
+		if step.Status == JobStatusCompleted {
+			count++
+		}
+	}
+	return count
 }
 
 func shouldSkipStep(st step, spec StoredSpec) (string, bool) {
