@@ -6,21 +6,54 @@
     shell.options["dba.restartWaitTimeout"] = {{ step_timeout_seconds | default(900) | int }}
     mysql_port = {{ mysql_port }}
     root_password = {{ root_password | to_json }}
-    shell.connect({
+    primary_conn = {
       "user": "root",
       "host": {{ primary_ip | to_json }},
       "port": mysql_port,
       "password": root_password
-    })
+    }
+
+    def connect_primary():
+      shell.connect(primary_conn)
+      return shell.get_session()
+
+    primary_session = connect_primary()
     cluster = dba.get_cluster({{ cluster_name | to_json }})
+
+    member_rows = primary_session.run_sql(
+      "SELECT LOWER(member_id) FROM performance_schema.replication_group_members"
+    ).fetch_all()
+    active_member_uuids = {str(row[0]).lower() for row in member_rows if row and row[0]}
+
     for host in {{ secondary_ips | to_json }}:
+      shell.connect({
+        "user": "root",
+        "host": host,
+        "port": mysql_port,
+        "password": root_password
+      })
+      target_session = shell.get_session()
+      target_uuid_row = target_session.run_sql(
+        "SELECT LOWER(@@GLOBAL.server_uuid)"
+      ).fetch_one()
+      target_uuid = str(target_uuid_row[0]).lower() if target_uuid_row and target_uuid_row[0] else ""
+
+      if target_uuid and target_uuid in active_member_uuids:
+        raise RuntimeError(
+          f"secondary node {host} still has duplicate server_uuid {target_uuid}. "
+          "Regenerate server_uuid on that host before add_instances, and ensure "
+          "configure_instances ran with assume_prepared=false using the latest playbook."
+        )
+
+      primary_session = connect_primary()
+      cluster = dba.get_cluster({{ cluster_name | to_json }})
       endpoint = f"root@{host}:{mysql_port}"
       try:
         cluster.add_instance(endpoint, {
           "password": root_password,
           "recoveryMethod": "clone",
           "localAddress": f"{host}:{mysql_port}",
-          "waitRecovery": 1
+          "recoveryProgress": 1
         })
         print("added " + host)
       except Exception as e:
