@@ -306,7 +306,6 @@ Automation note:
 - `bootstrap_router` defaults to `true` when omitted.
 - `new_user` + `new_user_password` + `new_db` are optional; when provided, API creates DB/user at final step.
 - `new_user_ssl_required` controls whether created user has `REQUIRE SSL`.
-- When `assume_prepared=false`, automation regenerates MySQL `server_uuid` on each node before `configure_instance` to avoid duplicate UUID errors from cloned hosts.
 
 Pre-check checklist (before API deploy):
 1. `root` can connect remotely from API VM to every MySQL node.
@@ -366,10 +365,6 @@ Step skip behavior:
 - `bootstrap_router` is skipped when `bootstrap_router=false`
 - `init_app_db` is skipped when `new_user/new_db` are not provided
 
-Resume behavior note:
-- Resume continues from the first unfinished step; it does not rerun completed earlier steps automatically.
-- If a job fails at `add_instances` because of duplicate `server_uuid`, a plain resume may hit the same error again when `configure_instances` already finished earlier.
-
 Debugging Ansible step crashes:
 - Set `MYSQL_ANSIBLE_DEBUG=true` and restart API service to stream live Ansible logs into systemd/journal logs.
 - Optionally set `MYSQL_ANSIBLE_VERBOSITY=3` (or `4`) for more detail.
@@ -386,9 +381,6 @@ Common errors and fixes:
 - `Invalid host/IP 'ubuntu-server' resolves to '127.0.1.1'`
   - Cause: MySQL instance identity uses loopback-resolving hostname.
   - Fix: set `report_host` to node IP/hostname in MySQL config and restart MySQL (handled by `configure_instances` when `assume_prepared=false`).
-- `same server_uuid` / duplicate server UUID during cluster setup
-  - Cause: cloned MySQL nodes reused the same `/var/lib/mysql/auto.cnf`.
-  - Fix: `configure_instances` regenerates `server_uuid` when `assume_prepared=false`, and `add_instances` now validates secondary UUID uniqueness before attempting clone recovery.
 
 ## Security Notes
 - Optional API key auth middleware (`X-API-Key`).
