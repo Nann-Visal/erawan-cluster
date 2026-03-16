@@ -1,3 +1,77 @@
+- name: Validate secondary server_uuid values before adding instances
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cat >/tmp/validate_secondary_uuids.py <<'PY'
+    shell.options["useWizards"] = False
+    mysql_port = {{ mysql_port }}
+    root_password = {{ root_password | to_json }}
+    primary_host = {{ primary_ip | to_json }}
+    secondary_hosts = {{ secondary_ips | to_json }}
+
+    def connect(host):
+      shell.connect({
+        "user": "root",
+        "host": host,
+        "port": mysql_port,
+        "password": root_password
+      })
+      return shell.get_session()
+
+    primary_session = connect(primary_host)
+    primary_uuid_row = primary_session.run_sql(
+      "SELECT LOWER(@@GLOBAL.server_uuid)"
+    ).fetch_one()
+    active_member_uuids = set()
+    if primary_uuid_row and primary_uuid_row[0]:
+      active_member_uuids.add(str(primary_uuid_row[0]).lower())
+
+    try:
+      member_rows = primary_session.run_sql(
+        "SELECT LOWER(member_id) FROM performance_schema.replication_group_members"
+      ).fetch_all()
+      for row in member_rows:
+        if row and row[0]:
+          active_member_uuids.add(str(row[0]).lower())
+    except Exception:
+      pass
+
+    seen_secondary_uuids = {}
+    for host in secondary_hosts:
+      session = connect(host)
+      uuid_row = session.run_sql(
+        "SELECT LOWER(@@GLOBAL.server_uuid)"
+      ).fetch_one()
+      if not uuid_row or not uuid_row[0]:
+        raise RuntimeError(f"unable to read server_uuid from secondary node {host}")
+      uuid = str(uuid_row[0]).lower()
+
+      if uuid in active_member_uuids:
+        raise RuntimeError(
+          f"secondary node {host} still uses duplicate server_uuid {uuid} "
+          f"from an active cluster member. Run a fresh deploy with "
+          f"assume_prepared=false or regenerate that node's server_uuid "
+          f"before add_instances."
+        )
+
+      if uuid in seen_secondary_uuids:
+        raise RuntimeError(
+          f"secondary nodes {seen_secondary_uuids[uuid]} and {host} share "
+          f"the same server_uuid {uuid}. Regenerate one of them before "
+          f"add_instances."
+        )
+      seen_secondary_uuids[uuid] = host
+
+    print("secondary server_uuid values validated")
+    PY
+    timeout {{ mysqlsh_add_instances_timeout_seconds | default(900) | int }} \
+      mysqlsh --no-wizard --py --file /tmp/validate_secondary_uuids.py
+    rm -f /tmp/validate_secondary_uuids.py
+  args:
+    executable: /bin/bash
+  register: add_instances_uuid_validation
+  changed_when: false
+  tags: ["add_instances"]
+
 - name: Add secondary instances to cluster
   ansible.builtin.shell: |
     set -euo pipefail
