@@ -141,6 +141,36 @@
   when: not (assume_prepared | default(false) | bool)
   tags: ["configure_instances", "configure_mysql"]
 
+- name: Stop MySQL before regenerating server_uuid
+  ansible.builtin.systemd:
+    name: mysql
+    state: stopped
+  when: not (assume_prepared | default(false) | bool)
+  tags: ["configure_instances", "configure_mysql"]
+
+- name: Remove MySQL auto.cnf to force a new server_uuid
+  ansible.builtin.file:
+    path: /var/lib/mysql/auto.cnf
+    state: absent
+  when: not (assume_prepared | default(false) | bool)
+  tags: ["configure_instances", "configure_mysql"]
+
+- name: Start MySQL after regenerating server_uuid
+  ansible.builtin.systemd:
+    name: mysql
+    state: started
+  when: not (assume_prepared | default(false) | bool)
+  tags: ["configure_instances", "configure_mysql"]
+
+- name: Wait for MySQL after regenerating server_uuid
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ mysql_port }}"
+    state: started
+    timeout: 120
+  when: not (assume_prepared | default(false) | bool)
+  tags: ["configure_instances", "configure_mysql"]
+
 - name: Configure instance for InnoDB Cluster
   ansible.builtin.shell: |
     set -euo pipefail

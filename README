@@ -306,6 +306,7 @@ Automation note:
 - `bootstrap_router` defaults to `true` when omitted.
 - `new_user` + `new_user_password` + `new_db` are optional; when provided, API creates DB/user at final step.
 - `new_user_ssl_required` controls whether created user has `REQUIRE SSL`.
+- When `assume_prepared=false`, automation regenerates MySQL `server_uuid` on each node before `configure_instance` to avoid duplicate UUID errors from cloned hosts.
 
 Pre-check checklist (before API deploy):
 1. `root` can connect remotely from API VM to every MySQL node.
@@ -381,6 +382,9 @@ Common errors and fixes:
 - `Invalid host/IP 'ubuntu-server' resolves to '127.0.1.1'`
   - Cause: MySQL instance identity uses loopback-resolving hostname.
   - Fix: set `report_host` to node IP/hostname in MySQL config and restart MySQL (handled by `configure_instances` when `assume_prepared=false`).
+- `same server_uuid` / duplicate server UUID during cluster setup
+  - Cause: cloned MySQL nodes reused the same `/var/lib/mysql/auto.cnf`.
+  - Fix: deploy automation now removes `auto.cnf` and restarts MySQL before cluster configuration when `assume_prepared=false`.
 
 ## Security Notes
 - Optional API key auth middleware (`X-API-Key`).
