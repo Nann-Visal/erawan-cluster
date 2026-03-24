@@ -1,288 +1,147 @@
-# MySQL InnoDB Cluster Setup Guide
+# MySQL InnoDB Cluster with MySQL Router
 
-A step-by-step guide for deploying a production-grade MySQL InnoDB Cluster with MySQL Router and HAProxy for high availability and automatic failover.
+This project deploys MySQL HA with MySQL InnoDB Cluster, MySQL Shell, and optional MySQL Router bootstrap.
 
----
+## Assumptions
 
-## Prerequisites
+- MySQL is already installed and running on every target node.
+- `mysqlsh` is already installed on every target node.
+- MySQL nodes can reach each other on the MySQL port.
+- The API host can SSH to every target node.
 
-> Use the **same MySQL Server version**, **same MySQL Shell version**, and preferably the **same OS family** on all nodes.
-> Production deployment guidance for InnoDB Cluster starts with checking instance compatibility and configuration consistency across nodes.
+Supported topologies:
 
----
+- Single-node bootstrap:
+  - 1 primary node
+- HA cluster:
+  - 1 primary node
+  - 1 or more secondary nodes
 
-## Step 1 — Prepare DNS or Hosts File on All DB Nodes
+## API payload
 
-Add all cluster node IPs and hostnames to `/etc/hosts` so nodes can resolve each other by name.
+Use a MySQL deploy body like this:
 
-```bash
-sudo tee -a /etc/hosts >/dev/null <<'EOF'
-10.10.10.1 db1
-10.10.10.2 db2
-10.10.10.3 db3
-10.10.10.n dbn
-EOF
+```json
+{
+  "root_password": "RootPass#2026",
+  "cluster_admin_username": "clusteradmin",
+  "cluster_admin_password": "ClusterAdmin#2026",
+  "cluster_name": "prodCluster",
+  "primary_ip": "192.168.122.154",
+  "secondary_ips": ["192.168.122.111"],
+  "new_user": "appuser",
+  "new_user_password": "AppUser#2026",
+  "new_user_ssl_required": true,
+  "new_db": "appdb",
+  "assume_prepared": false,
+  "bootstrap_router": true,
+  "ssh_user": "root",
+  "ssh_password": "password",
+  "ssh_port": 22,
+  "mysql_port": 3306,
+  "step_timeout_seconds": 900
+}
 ```
 
----
+To resume a failed job:
 
-## Step 2 — Install Packages on All DB Nodes
-
-Install MySQL Server, MySQL Shell, and MySQL Router on every node in the cluster.
-
-```bash
-sudo apt update
-sudo apt install -y mysql-server mysql-shell mysql-router
+```json
+{
+  "root_password": "RootPass#2026",
+  "cluster_admin_password": "ClusterAdmin#2026",
+  "ssh_password": "password",
+  "new_user_password": "AppUser#2026"
+}
 ```
 
----
+To roll back a MySQL job:
 
-## Step 3 — Set MySQL Root Password and Ensure MySQL Is Reachable on All Nodes
-
-Create a remote-accessible root user so MySQL Shell can connect to all nodes during cluster configuration.
-
-```sql
-mysql -uroot -p
-
-CREATE USER 'root'@'%' IDENTIFIED WITH mysql_native_password BY 'RootPass#2026';
-GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
-FLUSH PRIVILEGES;
-SELECT user, host, plugin FROM mysql.user WHERE user='root';
+```json
+{
+  "root_password": "RootPass#2026",
+  "cluster_admin_password": "ClusterAdmin#2026",
+  "ssh_password": "password"
+}
 ```
 
----
+## Field behavior
 
-## Step 4 — Set Minimal MySQL Config on All DB Nodes
+- `primary_ip`: node used to create the initial InnoDB Cluster.
+- `secondary_ips`: optional list of replica nodes to add after cluster creation.
+- `bootstrap_router`: when `true`, bootstraps MySQL Router on all DB nodes.
+- `assume_prepared`: when `true`, skips preflight and instance-configuration steps.
+- `new_user`, `new_user_password`, `new_db`: optional application database bootstrap.
+- `new_user_ssl_required`: controls whether the created MySQL user requires SSL.
 
-Apply a minimal cluster configuration to ensure MySQL listens on all interfaces and correctly reports its hostname to the cluster.
+## Deployment flow
 
-> ⚠️ Replace `db-host` with the actual hostname of each node (e.g. `db1`, `db2`, `db3`).
-
-```bash
-sudo tee /etc/mysql/mysql.conf.d/99-cluster.cnf >/dev/null <<'EOF'
-[mysqld]
-bind-address = 0.0.0.0
-report_host = db-host
-mysqlx-bind-address = 0.0.0.0
-EOF
-
-sudo systemctl restart mysql
-sudo systemctl enable mysql
-```
-
----
-
-## Step 5 — Configure All MySQL Instances for InnoDB Cluster
-
-Run this from any node or proxy that has network access to all DB nodes. This script uses MySQL Shell to prepare each instance for cluster membership by setting required configuration and creating a dedicated cluster admin user.
-
-Create `configure-cluster.py`:
-
-```bash
-sudo tee configure-cluster.py >/dev/null <<'EOF'
-root_pass = "RootPass#2026"
-cluster_admin = "clusteradmin"
-cluster_admin_pass = "ClusterAdmin#2026"
-
-instances = [
-    "10.10.10.1",
-    "10.10.10.2",
-    "10.10.10.3",
-    "10.10.10.n",
-]
-
-for host in instances:
-    instance = f"root@{host}:3306"
-    options = {
-        "password": root_pass,
-        "clusterAdmin": cluster_admin,
-        "clusterAdminPassword": cluster_admin_pass,
-        "restart": True,
-    }
-    try:
-        dba.configure_instance(instance, options)
-    except Exception as e:
-        msg = str(e)
-        if "clusterAdminPassword is not allowed for an existing account" in msg or "account already exists" in msg:
-            options.pop("clusterAdminPassword", None)
-            dba.configure_instance(instance, options)
-        else:
-            raise
-
-EOF
-
-mysqlsh --py --file configure-cluster.py
-```
-
----
-
-## Step 6 — Create the Cluster and Add Standby Nodes
-
-Connect to the first node (which becomes the initial primary), create the cluster, then add all remaining nodes using `clone` as the recovery method for automatic data synchronization.
-
-Create `create-cluster.js`:
-
-```bash
-sudo tee create-cluster.js >/dev/null <<'EOF'
-clusterAdmin = "clusteradmin"
-clusterAdminPass = "ClusterAdmin#2026"
-
-# Connect to first node (initial primary)
-shell.connect(f"{clusterAdmin}@10.10.10.1:3306", clusterAdminPass)
-
-# Create cluster
-cluster = dba.createCluster("routerCluster", {
-    "multiPrimary": False
-})
-
-# Add second node
-cluster.addInstance("clusteradmin@10.10.10.2:3306", {
-    "password": clusterAdminPass,
-    "recoveryMethod": "clone"
-})
-
-# Add third node
-cluster.addInstance("clusteradmin@10.10.10.3:3306", {
-    "password": clusterAdminPass,
-    "recoveryMethod": "clone"
-})
-
-# Add n node
-cluster.addInstance("clusteradmin@10.10.10.n:3306", {
-    "password": clusterAdminPass,
-    "recoveryMethod": "clone"
-})
-
-# Print cluster status
-import json
-print(json.dumps(cluster.status(), indent=2))
-
-EOF
-
-mysqlsh --js --file create-cluster.js
-```
-
-> The examples use `routerCluster` as the default cluster name. Change it only if you also update router directory/service names to match.
-
----
-
-## Step 7 — Bootstrap MySQL Router on Each MySQL Node
-
-MySQL Router acts as a middleware proxy, automatically routing read/write traffic to the correct cluster node. Bootstrap it on each DB node pointing to any active cluster member.
-
-```bash
-sudo mkdir -p /etc/mysqlrouter
-sudo chown root:root /etc/mysqlrouter
-sudo chmod 755 /etc/mysqlrouter
-
-id mysqlrouter || sudo useradd -r -s /usr/sbin/nologin mysqlrouter
-
-sudo mysqlrouter --bootstrap clusteradmin@10.10.10.n:3306 \
-  --conf-use-gr-notifications \
-  --conf-base-port 6446 \
-  --directory /etc/mysqlrouter/routerCluster \
-  --user=mysqlrouter
-```
-
-> **Default Router Ports after bootstrap:**
->
-> | Port | Purpose |
-> |------|---------|
-> | 6446 | Read/Write (primary) |
-> | 6446 | Read-only (secondaries) |
-> | 6448 | Read/Write (classic protocol) |
-> | 6449 | Read-only (classic protocol) |
-
----
-
-## Step 8 — Create a systemd Service for Router on Each DB Node
-
-Register MySQL Router as a systemd service so it starts automatically on boot and restarts on failure.
-
-```bash
-sudo tee /etc/systemd/system/mysqlrouter-routerCluster.service >/dev/null <<'EOF'
-[Unit]
-Description=MySQL Router for routerCluster
-After=network.target mysql.service
-Wants=network.target
-
-[Service]
-Type=simple
-User=mysqlrouter
-Group=mysqlrouter
-ExecStart=/usr/bin/mysqlrouter -c /etc/mysqlrouter/routerCluster/mysqlrouter.conf
-Restart=always
-RestartSec=5
-LimitNOFILE=65535
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable mysqlrouter-routerCluster
-sudo systemctl restart mysqlrouter-routerCluster
-sudo systemctl status mysqlrouter-routerCluster
-```
-
----
-
-## Step 9 — Configure HAProxy to Point to Router Ports
-
-On the HAProxy node, create a configuration block per tenant/port under `/var/lib/erawan-cluster/tenants/{port}.cfg`. HAProxy load-balances incoming connections across all Router instances using `leastconn` and performs TCP health checks.
-
-```bash
-listen mysql_{port}
-    mode tcp
-    balance leastconn
-    option tcp-check
-    server db1 10.10.10.1:6446 check inter 2s fall 3 rise 2
-    server db2 10.10.10.2:6446 check inter 2s fall 3 rise 2
-    server db3 10.10.10.3:6446 check inter 2s fall 3 rise 2
-    server dbn 10.10.10.n:6446 check inter 2s fall 3 rise 2
-
-sudo haproxy -c -f /var/lib/erawan-cluster/tenants/{port}.cfg
-sudo systemctl enable haproxy
-sudo systemctl restart haproxy
-sudo systemctl status haproxy
-```
-
-> **Note:** Port `6446` is the read-only Router port. Use `6446` if you need to route read/write traffic through HAProxy instead.
-
----
-
-## Step 10 — Status Check Script
-
-Use this script to query the live cluster status at any time via MySQL Shell. The output will show the role of each node (`PRIMARY` / `SECONDARY`), their online status, and replication health.
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-mysqlsh --js -u clusteradmin -h 10.10.189.18 -P 3306 -p -e \
-"import json; print(json.dumps(dba.getCluster('routerCluster').status(), indent=2))"
-
-chmod +x cluster-status.sh
-./cluster-status.sh
-```
-
----
+1. Preflight checks confirm MySQL, MySQL Shell, and connectivity prerequisites are present.
+2. Instance configuration prepares each node for InnoDB Cluster and creates or updates the cluster admin account.
+3. Cluster creation runs on the requested primary node.
+4. Secondary nodes are added with clone-based recovery when `secondary_ips` is not empty.
+5. MySQL Router is bootstrapped on all nodes when `bootstrap_router` is enabled.
+6. Verification checks cluster health and router state.
+7. Optional application database and user creation runs on the primary.
 
 ## Architecture Overview
 
+```text
+                         App Clients
+                              |
+                              v
+                        +------------+
+                        |  HAProxy    |
+                        |  optional   |
+                        +------------+
+                              |
+                              v
+                  +-------------------------+
+                  | MySQL Router on DB nodes|
+                  | optional bootstrap      |
+                  +-------------------------+
+                     |            |            |
+                     v            v            v
+                +---------+  +---------+  +---------+
+                | Primary |  |Secondary|  |Secondary|
+                | MySQL   |  | MySQL   |  | MySQL   |
+                +---------+  +---------+  +---------+
+                     \            |            /
+                      \           |           /
+                       +---------------------+
+                       | InnoDB Cluster GR   |
+                       | managed by mysqlsh  |
+                       +---------------------+
 ```
-                        ┌─────────────┐
-      App Clients ──▶   │   HAProxy   │  (TCP Load Balancer)
-                        └──────┬──────┘
-                               │ port 6446/6446
-              ┌────────────────┼────────────────┐
-              ▼                ▼                ▼
-        ┌──────────┐    ┌──────────┐    ┌──────────┐
-        │MySQL Rtr │    │MySQL Rtr │    │MySQL Rtr │  (on each DB node)
-        └────┬─────┘    └────┬─────┘    └────┬─────┘
-             │               │               │
-        ┌────▼─────┐    ┌────▼─────┐    ┌────▼─────┐
-        │  db1     │    │  db2     │    │  db3     │
-        │ PRIMARY  │◀──▶│SECONDARY │◀──▶│SECONDARY │  InnoDB Cluster
-        └──────────┘    └──────────┘    └──────────┘
-```
+
+## Optional modes
+
+Single-node mode:
+
+- Leave `secondary_ips` empty.
+- The `add_instances` step is skipped automatically.
+
+Prepared-node mode:
+
+- Set `assume_prepared` to `true` if the nodes were already prepared earlier.
+- The `preflight` and `configure_instances` steps are skipped.
+
+No-router mode:
+
+- Set `bootstrap_router` to `false`.
+- The router bootstrap step is skipped.
+
+## What the automation manages
+
+The MySQL playbooks manage:
+
+- InnoDB Cluster lifecycle through `mysqlsh`
+- Cluster member addition on secondary nodes
+- MySQL Router bootstrap and systemd service installation
+- Optional application database and user creation
+- Rollback for router services and cluster dissolve
+
+## Important behavior
+
+- MySQL supports both single-node and multi-node deployments in this project.
+- Rollback support exists for MySQL jobs through the rollback API.
+- If `bootstrap_router` is enabled, router services are created on all target DB nodes.

@@ -1,0 +1,58 @@
+- name: Ensure psql is installed
+  ansible.builtin.command:
+    argv: [psql, --version]
+  register: psql_check
+  changed_when: false
+  failed_when: psql_check.rc != 0
+  tags: ["preflight"]
+
+- name: Detect installed PostgreSQL major version
+  ansible.builtin.shell: |
+    set -euo pipefail
+    psql --version | awk '{print $3}' | cut -d. -f1
+  args:
+    executable: /bin/bash
+  register: pgsql_version
+  changed_when: false
+  failed_when: pgsql_version.rc != 0 or (pgsql_version.stdout | trim) == ""
+  tags: ["preflight"]
+
+- name: Store detected PostgreSQL major version
+  ansible.builtin.set_fact:
+    erawan_pg_major_version: "{{ pgsql_version.stdout | trim }}"
+  tags: ["preflight"]
+
+- name: Ensure Patroni binary is installed
+  ansible.builtin.shell: command -v patroni
+  args:
+    executable: /bin/bash
+  register: patroni_bin
+  changed_when: false
+  failed_when: patroni_bin.rc != 0 or (patroni_bin.stdout | trim) == ""
+  tags: ["preflight"]
+
+- name: Store detected Patroni binary path
+  ansible.builtin.set_fact:
+    erawan_patroni_bin_path: "{{ patroni_bin.stdout | trim }}"
+  tags: ["preflight"]
+
+- name: Ensure etcd binary is installed
+  ansible.builtin.shell: command -v etcd
+  args:
+    executable: /bin/bash
+  register: etcd_bin
+  changed_when: false
+  failed_when: etcd_bin.rc != 0 or (etcd_bin.stdout | trim) == ""
+  tags: ["preflight"]
+
+- name: Store detected etcd binary path
+  ansible.builtin.set_fact:
+    erawan_etcd_bin_path: "{{ etcd_bin.stdout | trim }}"
+  tags: ["preflight"]
+
+- name: Ensure PostgreSQL server binary exists
+  ansible.builtin.stat:
+    path: "/usr/lib/postgresql/{{ erawan_pg_major_version }}/bin/postgres"
+  register: pgsql_server_bin
+  failed_when: not pgsql_server_bin.stat.exists
+  tags: ["preflight"]

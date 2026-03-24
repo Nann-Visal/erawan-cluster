@@ -5,6 +5,16 @@ This folder contains OS-specific production install guides for the API host:
 - `debian.md`
 - `rocky.md`
 
+PostgreSQL deployment note:
+
+- PostgreSQL Patroni/etcd can be deployed as a single primary node or as a primary with one or more standby nodes.
+- `standby_ips` may be empty for a small single-node deployment.
+
+MySQL deployment note:
+
+- MySQL InnoDB Cluster can be deployed as a single primary node or as a primary with one or more secondary nodes.
+- MySQL Router bootstrap is optional and controlled by the API request.
+
 All guides use the same production layout:
 
 ```text

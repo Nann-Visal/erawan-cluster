@@ -39,6 +39,9 @@ HAPROXY_RELOAD_CMD=sudo /bin/systemctl reload haproxy
 CLUSTER_STATE_DIR=/var/lib/erawan-cluster/cluster/jobs
 MYSQL_DEPLOY_PLAYBOOK=/opt/erawan-cluster/cluster/mysql/playbooks/deploy.yml
 MYSQL_ROLLBACK_PLAYBOOK=/opt/erawan-cluster/cluster/mysql/playbooks/rollback.yml
+CLUSTER_ANSIBLE_DEBUG=false
+CLUSTER_ANSIBLE_VERBOSITY=0
+CLUSTER_STEP_OUTPUT_MAX_CHARS=8000
 ```
 
 ## 5) Reload services
@@ -61,6 +64,12 @@ sudo ss -lntp | grep -E ':8080|:25000|:6446' || true
 sudo journalctl -u erawan-cluster -f
 sudo journalctl -u haproxy -f
 ```
+
+## PostgreSQL deployment note
+If you use the PostgreSQL Patroni/etcd cluster API, the target topology can be either 1 primary node only or 1 primary node with 1 or more standby nodes. Use `standby_ips: []` for a small single-node deployment.
+
+## MySQL deployment note
+If you use the MySQL InnoDB Cluster API, the target topology can be either 1 primary node only or 1 primary node with 1 or more secondary nodes. MySQL Router bootstrap is optional.
 
 ## Ubuntu HAProxy notes
 1. Ensure `/etc/haproxy/haproxy.cfg` has:
