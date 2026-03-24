@@ -65,7 +65,7 @@ sudo journalctl -u haproxy -f
 ```
 
 ## PostgreSQL deployment note
-If you use the PostgreSQL Patroni/etcd cluster API, the target topology must be at least 3 database nodes total: 1 primary and at least 2 standby nodes.
+If you use the PostgreSQL Patroni/etcd cluster API, the target topology can be either 1 primary node only or 1 primary node with 1 or more standby nodes. Use `standby_ips: []` for a small single-node deployment.
 
 ## MySQL deployment note
 If you use the MySQL InnoDB Cluster API, the target topology can be either 1 primary node only or 1 primary node with 1 or more secondary nodes. MySQL Router bootstrap is optional.

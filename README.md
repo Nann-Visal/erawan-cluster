@@ -38,7 +38,7 @@ REST API for automated database cluster lifecycle management and HAProxy configu
 ### PostgreSQL Cluster
 - Automated Patroni-based PostgreSQL cluster deployment
 - Embedded `etcd` distributed consensus across database nodes
-- Minimum supported topology is 3 PostgreSQL nodes
+- Supports single-node bootstrap or primary-plus-standby topologies
 - Automatic leader election and replica bootstrap
 - `pg_rewind`-based recovery support for diverged replicas
 - Job-based rollout with verification via Patroni REST API
@@ -72,7 +72,7 @@ REST API for automated database cluster lifecycle management and HAProxy configu
 - PostgreSQL installed on all target nodes
 - `patroni[etcd]` installed
 - `etcd` installed
-- Minimum 3 PostgreSQL nodes: 1 primary and at least 2 standby nodes
+- Supported topology is either 1 primary only or 1 primary plus 1 or more standby nodes
 - Nodes reachable on ports 2379, 2380, 5432, and 8008
 
 ---

@@ -7,8 +7,8 @@ This folder contains OS-specific production install guides for the API host:
 
 PostgreSQL deployment note:
 
-- Patroni/etcd PostgreSQL clusters require at least 3 database nodes total.
-- Supported minimum topology is 1 primary node and at least 2 standby nodes.
+- PostgreSQL Patroni/etcd can be deployed as a single primary node or as a primary with one or more standby nodes.
+- `standby_ips` may be empty for a small single-node deployment.
 
 MySQL deployment note:
 

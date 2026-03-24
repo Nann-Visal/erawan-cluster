@@ -64,9 +64,6 @@ func ValidateDeployRequest(req *DeployRequest) error {
 	if net.ParseIP(req.PrimaryIP) == nil {
 		return fmt.Errorf("primary_ip must be a valid IP address")
 	}
-	if len(req.StandbyIPs) < 2 {
-		return fmt.Errorf("PostgreSQL Patroni/etcd cluster requires at least 3 nodes total: 1 primary and at least 2 standby nodes")
-	}
 
 	seen := map[string]struct{}{req.PrimaryIP: {}}
 	for i, ip := range req.StandbyIPs {
