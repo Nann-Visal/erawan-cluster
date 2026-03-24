@@ -20,11 +20,17 @@ func ValidateDeployRequest(req *DeployRequest) error {
 	req.NewUser = strings.TrimSpace(req.NewUser)
 	req.NewDB = strings.TrimSpace(req.NewDB)
 	if req.ClusterName == "" {
-		req.ClusterName = "pgcluster"
+		req.ClusterName = "postgres-cluster"
 	}
 
-	if strings.TrimSpace(req.RepmgrPassword) == "" {
-		return fmt.Errorf("repmgr_password is required")
+	if strings.TrimSpace(req.PostgresPassword) == "" {
+		return fmt.Errorf("postgres_password is required")
+	}
+	if strings.TrimSpace(req.ReplicatorPassword) == "" {
+		return fmt.Errorf("replicator_password is required")
+	}
+	if strings.TrimSpace(req.AdminPassword) == "" {
+		return fmt.Errorf("admin_password is required")
 	}
 	if strings.TrimSpace(req.SSHPassword) == "" {
 		return fmt.Errorf("ssh_password is required")
@@ -58,8 +64,8 @@ func ValidateDeployRequest(req *DeployRequest) error {
 	if net.ParseIP(req.PrimaryIP) == nil {
 		return fmt.Errorf("primary_ip must be a valid IP address")
 	}
-	if len(req.StandbyIPs) == 0 {
-		return fmt.Errorf("standby_ips must contain at least one standby node")
+	if len(req.StandbyIPs) < 2 {
+		return fmt.Errorf("PostgreSQL Patroni/etcd cluster requires at least 3 nodes total: 1 primary and at least 2 standby nodes")
 	}
 
 	seen := map[string]struct{}{req.PrimaryIP: {}}
@@ -99,12 +105,14 @@ func ValidateDeployRequest(req *DeployRequest) error {
 
 func ValidateResumeSecrets(req ResumeRequest) (SecretInput, error) {
 	secret := SecretInput{
-		RepmgrPassword:  strings.TrimSpace(req.RepmgrPassword),
-		SSHPassword:     strings.TrimSpace(req.SSHPassword),
-		NewUserPassword: strings.TrimSpace(req.NewUserPassword),
+		PostgresPassword:   strings.TrimSpace(req.PostgresPassword),
+		ReplicatorPassword: strings.TrimSpace(req.ReplicatorPassword),
+		AdminPassword:      strings.TrimSpace(req.AdminPassword),
+		SSHPassword:        strings.TrimSpace(req.SSHPassword),
+		NewUserPassword:    strings.TrimSpace(req.NewUserPassword),
 	}
-	if secret.RepmgrPassword == "" || secret.SSHPassword == "" {
-		return SecretInput{}, fmt.Errorf("repmgr_password and ssh_password are required")
+	if secret.PostgresPassword == "" || secret.ReplicatorPassword == "" || secret.AdminPassword == "" || secret.SSHPassword == "" {
+		return SecretInput{}, fmt.Errorf("postgres_password, replicator_password, admin_password, and ssh_password are required")
 	}
 	return secret, nil
 }

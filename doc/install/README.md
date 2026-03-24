@@ -5,6 +5,11 @@ This folder contains OS-specific production install guides for the API host:
 - `debian.md`
 - `rocky.md`
 
+PostgreSQL deployment note:
+
+- Patroni/etcd PostgreSQL clusters require at least 3 database nodes total.
+- Supported minimum topology is 1 primary node and at least 2 standby nodes.
+
 All guides use the same production layout:
 
 ```text

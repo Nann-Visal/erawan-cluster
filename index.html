@@ -75,10 +75,12 @@ POST /cluster/pgsql/jobs/{jobID}/resume</code></pre>
     <h2>PostgreSQL Deploy Payload</h2>
     <div class="card">
 <pre><code>{
-  "cluster_name": "pgcluster",
-  "primary_ip": "192.168.122.154",
-  "standby_ips": ["192.168.122.111"],
-  "repmgr_password": "Repmgr#2026",
+  "cluster_name": "postgres-cluster",
+  "primary_ip": "10.0.0.1",
+  "standby_ips": ["10.0.0.2", "10.0.0.3"],
+  "postgres_password": "postgrespassword",
+  "replicator_password": "replicatorpassword",
+  "admin_password": "adminpassword",
   "new_user": "appuser",
   "new_user_password": "AppUser#2026",
   "new_db": "appdb",

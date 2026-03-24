@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	defaultPostgreSQLVersion = 16
-	defaultPostgreSQLCluster = "main"
-	defaultRepmgrUser        = "repmgr"
-	defaultRepmgrDB          = "repmgr"
+	defaultPostgreSQLVersionHint = 16
+	defaultPostgreSQLCluster     = "main"
+	defaultPostgresSuperuser     = "postgres"
+	defaultReplicationUser       = "replicator"
+	defaultPatroniAdminUser      = "admin"
 )
 
 type Runner struct {
@@ -96,31 +97,31 @@ func (r *Runner) run(ctx context.Context, cfg runConfig) (result StepResult) {
 	}
 
 	extraVars := map[string]any{
-		"cluster_name":            cfg.spec.ClusterName,
-		"primary_ip":              cfg.spec.PrimaryIP,
-		"standby_ips":             cfg.spec.StandbyIPs,
-		"repmgr_user":             defaultRepmgrUser,
-		"repmgr_db":               defaultRepmgrDB,
-		"repmgr_password":         cfg.secret.RepmgrPassword,
-		"new_user":                cfg.spec.NewUser,
-		"new_user_password":       cfg.secret.NewUserPassword,
-		"new_db":                  cfg.spec.NewDB,
-		"postgres_port":           cfg.spec.PostgresPort,
-		"postgresql_version":      defaultPostgreSQLVersion,
-		"postgresql_cluster_name": defaultPostgreSQLCluster,
-		"postgresql_service_name": "postgresql@" + strconv.Itoa(defaultPostgreSQLVersion) + "-" + defaultPostgreSQLCluster,
-		"postgresql_data_directory": filepath.Join(
-			"/var/lib/postgresql",
-			strconv.Itoa(defaultPostgreSQLVersion),
-			defaultPostgreSQLCluster,
-		),
-		"postgresql_bindir": filepath.Join(
-			"/usr/lib/postgresql",
-			strconv.Itoa(defaultPostgreSQLVersion),
-			"bin",
-		),
-		"repmgr_conf_path":     "/etc/repmgr.conf",
-		"step_timeout_seconds": cfg.spec.StepTimeoutSeconds,
+		"cluster_name":                cfg.spec.ClusterName,
+		"primary_ip":                  cfg.spec.PrimaryIP,
+		"standby_ips":                 cfg.spec.StandbyIPs,
+		"postgres_superuser":          defaultPostgresSuperuser,
+		"postgres_superuser_password": cfg.secret.PostgresPassword,
+		"replication_user":            defaultReplicationUser,
+		"replication_password":        cfg.secret.ReplicatorPassword,
+		"patroni_admin_user":          defaultPatroniAdminUser,
+		"patroni_admin_password":      cfg.secret.AdminPassword,
+		"new_user":                    cfg.spec.NewUser,
+		"new_user_password":           cfg.secret.NewUserPassword,
+		"new_db":                      cfg.spec.NewDB,
+		"postgres_port":               cfg.spec.PostgresPort,
+		"postgresql_version_hint":     defaultPostgreSQLVersionHint,
+		"postgresql_cluster_name":     defaultPostgreSQLCluster,
+		"patroni_scope":               cfg.spec.ClusterName,
+		"patroni_namespace":           "/db/",
+		"patroni_rest_port":           8008,
+		"patroni_config_path":         "/etc/patroni/patroni.yml",
+		"patroni_pgpass_path":         "/tmp/patroni.pgpass",
+		"etcd_config_path":            "/etc/etcd/etcd.conf",
+		"etcd_cluster_token":          cfg.spec.ClusterName + "-etcd-cluster-token",
+		"etcd_client_port":            2379,
+		"etcd_peer_port":              2380,
+		"step_timeout_seconds":        cfg.spec.StepTimeoutSeconds,
 	}
 
 	sanitized, err := json.Marshal(extraVars)

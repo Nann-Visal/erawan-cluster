@@ -65,6 +65,9 @@ sudo journalctl -u erawan-cluster -f
 sudo journalctl -u haproxy -f
 ```
 
+## PostgreSQL deployment note
+If you use the PostgreSQL Patroni/etcd cluster API, the target topology must be at least 3 database nodes total: 1 primary and at least 2 standby nodes.
+
 ## Debian HAProxy notes
 1. Ensure `/etc/haproxy/haproxy.cfg` has:
    - `stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners`

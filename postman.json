@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "0f487bb5-3f07-49a9-9b29-e468f795d8d5",
     "name": "Erawan Cluster API (Go)",
-    "description": "Postman collection for HAProxy, MySQL cluster, and PostgreSQL cluster endpoints",
+    "description": "Postman collection for HAProxy, MySQL cluster, and PostgreSQL cluster endpoints. PostgreSQL Patroni/etcd deployment requires at least 3 nodes total: 1 primary and at least 2 standby nodes.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -21,7 +21,12 @@
     { "key": "NEW_USER_PASSWORD", "value": "AppUser#2026" },
     { "key": "NEW_USER_SSL_REQUIRED", "value": "true" },
     { "key": "NEW_DB", "value": "appdb" },
-    { "key": "REPMGR_PASSWORD", "value": "Repmgr#2026" }
+    { "key": "PGSQL_PRIMARY_IP", "value": "10.0.0.1" },
+    { "key": "PGSQL_STANDBY_IP_1", "value": "10.0.0.2" },
+    { "key": "PGSQL_STANDBY_IP_2", "value": "10.0.0.3" },
+    { "key": "POSTGRES_PASSWORD", "value": "postgrespassword" },
+    { "key": "REPLICATOR_PASSWORD", "value": "replicatorpassword" },
+    { "key": "PATRONI_ADMIN_PASSWORD", "value": "adminpassword" }
   ],
   "item": [
     {
@@ -245,6 +250,7 @@
     },
     {
       "name": "Cluster - PostgreSQL",
+      "description": "Minimum PostgreSQL topology is 3 nodes total: 1 primary and at least 2 standby nodes.",
       "item": [
         {
           "name": "Deploy",
@@ -256,8 +262,9 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"cluster_name\": \"{{CLUSTER_NAME}}\",\n  \"primary_ip\": \"{{PRIMARY_IP}}\",\n  \"standby_ips\": [\"{{SECONDARY_IP}}\"],\n  \"repmgr_password\": \"{{REPMGR_PASSWORD}}\",\n  \"new_user\": \"{{NEW_USER}}\",\n  \"new_user_password\": \"{{NEW_USER_PASSWORD}}\",\n  \"new_db\": \"{{NEW_DB}}\",\n  \"ssh_user\": \"root\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"ssh_port\": 22,\n  \"postgres_port\": 5432,\n  \"step_timeout_seconds\": 900\n}"
+              "raw": "{\n  \"cluster_name\": \"{{CLUSTER_NAME}}\",\n  \"primary_ip\": \"{{PGSQL_PRIMARY_IP}}\",\n  \"standby_ips\": [\"{{PGSQL_STANDBY_IP_1}}\", \"{{PGSQL_STANDBY_IP_2}}\"],\n  \"postgres_password\": \"{{POSTGRES_PASSWORD}}\",\n  \"replicator_password\": \"{{REPLICATOR_PASSWORD}}\",\n  \"admin_password\": \"{{PATRONI_ADMIN_PASSWORD}}\",\n  \"new_user\": \"{{NEW_USER}}\",\n  \"new_user_password\": \"{{NEW_USER_PASSWORD}}\",\n  \"new_db\": \"{{NEW_DB}}\",\n  \"ssh_user\": \"root\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"ssh_port\": 22,\n  \"postgres_port\": 5432,\n  \"step_timeout_seconds\": 900\n}"
             },
+            "description": "Requires at least 3 PostgreSQL nodes total: 1 primary and at least 2 standby nodes.",
             "url": {
               "raw": "http://{{API_HOST}}:{{API_PORT}}/cluster/pgsql/deploy",
               "protocol": "http",
@@ -312,7 +319,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"repmgr_password\": \"{{REPMGR_PASSWORD}}\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"new_user_password\": \"{{NEW_USER_PASSWORD}}\"\n}"
+              "raw": "{\n  \"postgres_password\": \"{{POSTGRES_PASSWORD}}\",\n  \"replicator_password\": \"{{REPLICATOR_PASSWORD}}\",\n  \"admin_password\": \"{{PATRONI_ADMIN_PASSWORD}}\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"new_user_password\": \"{{NEW_USER_PASSWORD}}\"\n}"
             },
             "url": {
               "raw": "http://{{API_HOST}}:{{API_PORT}}/cluster/pgsql/jobs/{{JOB_ID}}/resume",

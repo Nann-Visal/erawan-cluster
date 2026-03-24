@@ -64,6 +64,9 @@ sudo journalctl -u erawan-cluster -f
 sudo journalctl -u haproxy -f
 ```
 
+## PostgreSQL deployment note
+If you use the PostgreSQL Patroni/etcd cluster API, the target topology must be at least 3 database nodes total: 1 primary and at least 2 standby nodes.
+
 ## Rocky HAProxy notes
 1. Installer adds systemd override at:
    - `/etc/systemd/system/haproxy.service.d/override.conf`

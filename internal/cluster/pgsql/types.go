@@ -13,7 +13,9 @@ type DeployRequest struct {
 	ClusterName        string   `json:"cluster_name"`
 	PrimaryIP          string   `json:"primary_ip"`
 	StandbyIPs         []string `json:"standby_ips"`
-	RepmgrPassword     string   `json:"repmgr_password"`
+	PostgresPassword   string   `json:"postgres_password"`
+	ReplicatorPassword string   `json:"replicator_password"`
+	AdminPassword      string   `json:"admin_password"`
 	NewUser            string   `json:"new_user"`
 	NewUserPassword    string   `json:"new_user_password"`
 	NewDB              string   `json:"new_db"`
@@ -25,9 +27,11 @@ type DeployRequest struct {
 }
 
 type ResumeRequest struct {
-	RepmgrPassword  string `json:"repmgr_password"`
-	SSHPassword     string `json:"ssh_password"`
-	NewUserPassword string `json:"new_user_password"`
+	PostgresPassword   string `json:"postgres_password"`
+	ReplicatorPassword string `json:"replicator_password"`
+	AdminPassword      string `json:"admin_password"`
+	SSHPassword        string `json:"ssh_password"`
+	NewUserPassword    string `json:"new_user_password"`
 }
 
 type StepResult struct {
@@ -66,7 +70,9 @@ type StoredSpec struct {
 }
 
 type SecretInput struct {
-	RepmgrPassword  string
-	SSHPassword     string
-	NewUserPassword string
+	PostgresPassword   string
+	ReplicatorPassword string
+	AdminPassword      string
+	SSHPassword        string
+	NewUserPassword    string
 }

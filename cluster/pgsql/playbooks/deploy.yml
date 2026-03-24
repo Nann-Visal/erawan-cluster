@@ -34,22 +34,26 @@
     - name: Include standby configuration tasks
       ansible.builtin.import_tasks: tasks/04_standby.yml
 
-- name: PostgreSQL auto-rejoin configuration
+- name: PostgreSQL cluster bootstrap
   hosts: all
   gather_facts: false
   become: true
-  serial: 1
   tasks:
-    - name: Include auto-rejoin tasks
-      ansible.builtin.import_tasks: tasks/05_auto_rejoin.yml
+    - name: Include cluster bootstrap tasks
+      ansible.builtin.import_tasks: tasks/05_cluster_bootstrap.yml
 
 - name: PostgreSQL cluster final verification
-  hosts: pgsql_primary
+  hosts: all
   gather_facts: false
   become: true
   tasks:
     - name: Include verification tasks
       ansible.builtin.import_tasks: tasks/06_verify_cluster.yml
 
+- name: PostgreSQL application database initialization
+  hosts: pgsql_primary
+  gather_facts: false
+  become: true
+  tasks:
     - name: Include app database initialization tasks
       ansible.builtin.import_tasks: tasks/07_init_app_db.yml

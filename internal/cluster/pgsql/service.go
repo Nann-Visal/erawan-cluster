@@ -29,7 +29,7 @@ func NewService(store *Store, runner *Runner) *Service {
 			{Name: "base_config", Tag: "base_config"},
 			{Name: "primary_config", Tag: "primary_config"},
 			{Name: "standby_config", Tag: "standby_config"},
-			{Name: "auto_rejoin", Tag: "auto_rejoin"},
+			{Name: "cluster_bootstrap", Tag: "cluster_bootstrap"},
 			{Name: "verify_cluster", Tag: "verify_cluster"},
 			{Name: "init_app_db", Tag: "init_app_db", Skippable: true},
 		},
@@ -66,9 +66,11 @@ func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 	}
 
 	secrets := SecretInput{
-		RepmgrPassword:  req.RepmgrPassword,
-		SSHPassword:     req.SSHPassword,
-		NewUserPassword: req.NewUserPassword,
+		PostgresPassword:   req.PostgresPassword,
+		ReplicatorPassword: req.ReplicatorPassword,
+		AdminPassword:      req.AdminPassword,
+		SSHPassword:        req.SSHPassword,
+		NewUserPassword:    req.NewUserPassword,
 	}
 
 	if err := s.executeFrom(ctx, job, 0, secrets); err != nil {

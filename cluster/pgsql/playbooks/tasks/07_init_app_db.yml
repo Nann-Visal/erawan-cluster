@@ -1,7 +1,7 @@
 - name: Initialize application database and user
   ansible.builtin.shell: |
     set -euo pipefail
-    sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+    psql -h {{ primary_ip }} -p {{ postgres_port }} -U {{ postgres_superuser }} -d postgres -v ON_ERROR_STOP=1 <<'SQL'
     DO $$
     BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ new_user }}') THEN
@@ -20,6 +20,8 @@
     SQL
   args:
     executable: /bin/bash
+  environment:
+    PGPASSWORD: "{{ postgres_superuser_password }}"
   changed_when: false
   when:
     - (new_user | default('') | string | length) > 0

@@ -18,7 +18,7 @@ REST API for automated database cluster lifecycle management and HAProxy configu
 | Automation | Ansible |
 | Proxy | HAProxy (optional) |
 | MySQL Cluster | MySQL InnoDB Cluster + MySQL Shell + MySQL Router |
-| PostgreSQL Cluster | PostgreSQL 16 + repmgr + repmgrd |
+| PostgreSQL Cluster | PostgreSQL + Patroni + etcd |
 
 ---
 
@@ -34,11 +34,12 @@ REST API for automated database cluster lifecycle management and HAProxy configu
 - Primary-only or multi-node (primary + secondaries) deployment
 
 ### PostgreSQL Cluster
-- Automated PostgreSQL 16 streaming replication
-- Auto-failover using repmgrd daemon monitoring
-- Auto-rejoin after node recovery with metadata update
-- pg_rewind support for timeline divergence recovery
-- Split-brain prevention with node-specific boot delay
+- Automated Patroni-based PostgreSQL cluster deployment
+- Embedded `etcd` distributed consensus across database nodes
+- Minimum supported topology is 3 PostgreSQL nodes
+- Automatic leader election and replica bootstrap
+- `pg_rewind`-based recovery support for diverged replicas
+- Job-based rollout with verification via Patroni REST API
 
 ### HAProxy (Optional)
 - Tenant-based HAProxy config generation and hot reload
@@ -65,11 +66,11 @@ REST API for automated database cluster lifecycle management and HAProxy configu
 - Nodes can reach each other on MySQL port (default 3306)
 
 ### PostgreSQL Target Nodes
-- PostgreSQL 16 installed
-- `repmgr` and `repmgrd` installed (`postgresql-16-repmgr`)
-- Nodes reachable from each other on port 5432
-- `shared_preload_libraries = 'repmgr'` set in `postgresql.conf`
-- `wal_log_hints = on` set in `postgresql.conf`
+- PostgreSQL installed on all target nodes
+- `patroni[etcd]` installed
+- `etcd` installed
+- Minimum 3 PostgreSQL nodes: 1 primary and at least 2 standby nodes
+- Nodes reachable on ports 2379, 2380, 5432, and 8008
 
 ---
 
