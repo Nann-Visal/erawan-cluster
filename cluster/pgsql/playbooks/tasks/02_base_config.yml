@@ -5,6 +5,8 @@
     erawan_pg_service_name: "{{ 'postgresql@' ~ erawan_pg_major_version ~ '-' ~ postgresql_cluster_name }}"
     erawan_pg_data_directory: "{{ '/var/lib/postgresql/' ~ erawan_pg_major_version ~ '/' ~ postgresql_cluster_name }}"
     erawan_pg_bindir: "{{ '/usr/lib/postgresql/' ~ erawan_pg_major_version ~ '/bin' }}"
+    erawan_pg_reset_marker: "{{ '/var/lib/postgresql/.erawan-pgsql-reset-' ~ deployment_job_id ~ '-' ~ erawan_pg_node_name }}"
+    erawan_etcd_reset_marker: "{{ '/var/lib/etcd/.erawan-etcd-reset-' ~ deployment_job_id ~ '-' ~ erawan_pg_node_name }}"
   tags: ["base_config"]
 
 - name: Stop Patroni service before reconfiguration

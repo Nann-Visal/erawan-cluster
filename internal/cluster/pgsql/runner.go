@@ -97,6 +97,7 @@ func (r *Runner) run(ctx context.Context, cfg runConfig) (result StepResult) {
 	}
 
 	extraVars := map[string]any{
+		"deployment_job_id":           cfg.jobID,
 		"cluster_name":                cfg.spec.ClusterName,
 		"primary_ip":                  cfg.spec.PrimaryIP,
 		"standby_ips":                 cfg.spec.StandbyIPs,

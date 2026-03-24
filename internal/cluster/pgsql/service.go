@@ -186,6 +186,9 @@ func (s *Service) executeFrom(ctx context.Context, job *Job, startIndex int, sec
 }
 
 func shouldSkipStep(st step, spec StoredSpec) (string, bool) {
+	if st.Name == "standby_config" && len(spec.StandbyIPs) == 0 {
+		return "standby_ips is empty", true
+	}
 	if st.Skippable && (spec.NewUser == "" || spec.NewDB == "") {
 		return "new_user/new_db not provided", true
 	}

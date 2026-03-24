@@ -140,5 +140,6 @@ HA mode:
 ## Important behavior
 
 - The automation is intended for a fresh cluster bootstrap.
-- It clears `/var/lib/etcd` and the PostgreSQL data directory under `/var/lib/postgresql/<major>/main`.
+- It clears `/var/lib/etcd` and the PostgreSQL data directory under `/var/lib/postgresql/<major>/main` once per deployment job.
+- Resume retries for the same job do not wipe the PostgreSQL or etcd data again.
 - Patroni becomes the process manager for PostgreSQL; the distro `postgresql@...` service is stopped and disabled.

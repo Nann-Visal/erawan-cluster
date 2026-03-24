@@ -13,6 +13,7 @@ Implemented workflow:
 - Shared `etcd` cluster configuration on all PostgreSQL nodes
 - Patroni leader bootstrap on the requested primary node
 - Patroni replica bootstrap on standby nodes when `standby_ips` is provided
+- Retry-safe bootstrap resets data only once per deployment job
 - Cluster verification through systemd state, Patroni REST API, and replication checks
 - Optional application database/user bootstrap
 
