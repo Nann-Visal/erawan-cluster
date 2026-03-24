@@ -26,12 +26,14 @@ REST API for automated database cluster lifecycle management and HAProxy configu
 
 ### MySQL Cluster
 - Automated MySQL InnoDB Cluster deployment via Ansible
+- Supports single-node bootstrap or primary-plus-secondary topologies
 - Auto-failover using MySQL InnoDB Cluster native HA
 - MySQL Router bootstrap and service configuration on DB nodes
 - MySQL Shell (`mysqlsh`) for cluster operations (`dba.configure_instance`, `dba.createCluster`, `dba.addInstance`)
+- Optional prepared-node mode via `assume_prepared`
 - Application database and user provisioning
 - Job-based async deployment with resume and rollback support
-- Primary-only or multi-node (primary + secondaries) deployment
+- Optional router bootstrap via `bootstrap_router`
 
 ### PostgreSQL Cluster
 - Automated Patroni-based PostgreSQL cluster deployment
@@ -61,6 +63,7 @@ REST API for automated database cluster lifecycle management and HAProxy configu
 ### MySQL Target Nodes
 - MySQL installed and running
 - `mysqlsh` (MySQL Shell) installed
+- Supported topology is either 1 primary only or 1 primary plus 1 or more secondary nodes
 - Nodes reachable from API host via SSH
 - MySQL `root` account accessible from API host
 - Nodes can reach each other on MySQL port (default 3306)

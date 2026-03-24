@@ -17,6 +17,30 @@ Implemented workflow:
 - Cluster verification through systemd state, Patroni REST API, and replication checks
 - Optional application database/user bootstrap
 
+Architecture overview:
+
+```text
+      API / Ansible
+           |
+           v
+   +------------------+
+   | Patroni services |
+   | on all PG nodes  |
+   +------------------+
+           |
+           v
+   +------------------+
+   | PostgreSQL       |
+   | leader + replicas|
+   +------------------+
+           ^
+           |
+   +------------------+
+   | etcd cluster     |
+   | shared DCS state |
+   +------------------+
+```
+
 Entry point:
 
 - `cluster/pgsql/playbooks/deploy.yml`

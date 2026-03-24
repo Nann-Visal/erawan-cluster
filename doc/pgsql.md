@@ -73,6 +73,34 @@ To resume a failed job:
 4. Cluster bootstrap starts `etcd` on all nodes, then starts Patroni on the requested primary, then on the standby nodes.
 5. Verification checks systemd state, Patroni REST API membership, and `pg_stat_replication`.
 
+## Architecture Overview
+
+```text
+                    App Clients / Applications
+                               |
+                               v
+                      +------------------+
+                      | Patroni Leader   |
+                      | PostgreSQL write |
+                      +------------------+
+                          |          |
+                          | streaming |
+                          v          v
+                   +-------------+ +-------------+
+                   | Patroni     | | Patroni     |
+                   | Replica     | | Replica     |
+                   +-------------+ +-------------+
+
+          +-------------+   +-------------+   +-------------+
+          | etcd node 1 |   | etcd node 2 |   | etcd node 3 |
+          +-------------+   +-------------+   +-------------+
+                 \                |                /
+                  \               |               /
+                   +-----------------------------+
+                   | DCS / leader election state |
+                   +-----------------------------+
+```
+
 ## Important behavior
 
 - The automation is intended for a fresh cluster bootstrap.

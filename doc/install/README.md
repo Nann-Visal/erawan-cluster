@@ -10,6 +10,11 @@ PostgreSQL deployment note:
 - Patroni/etcd PostgreSQL clusters require at least 3 database nodes total.
 - Supported minimum topology is 1 primary node and at least 2 standby nodes.
 
+MySQL deployment note:
+
+- MySQL InnoDB Cluster can be deployed as a single primary node or as a primary with one or more secondary nodes.
+- MySQL Router bootstrap is optional and controlled by the API request.
+
 All guides use the same production layout:
 
 ```text
