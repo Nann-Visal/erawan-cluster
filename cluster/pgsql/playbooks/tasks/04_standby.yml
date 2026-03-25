@@ -1,3 +1,7 @@
+- name: Rediscover PostgreSQL runtime facts for this step
+  ansible.builtin.import_tasks: 00_runtime_facts.yml
+  tags: ["standby_config"]
+
 - name: Check whether PostgreSQL data reset already ran on standby for this job
   ansible.builtin.stat:
     path: "{{ erawan_pg_reset_marker }}"

@@ -1,12 +1,5 @@
-- name: Derive per-node PostgreSQL cluster facts
-  ansible.builtin.set_fact:
-    erawan_pg_node_id: "{{ (groups['all'] | list).index(inventory_hostname) + 1 }}"
-    erawan_pg_node_name: "{{ 'node' ~ ((groups['all'] | list).index(inventory_hostname) + 1) }}"
-    erawan_pg_service_name: "{{ 'postgresql@' ~ erawan_pg_major_version ~ '-' ~ postgresql_cluster_name }}"
-    erawan_pg_data_directory: "{{ '/var/lib/postgresql/' ~ erawan_pg_major_version ~ '/' ~ postgresql_cluster_name }}"
-    erawan_pg_bindir: "{{ '/usr/lib/postgresql/' ~ erawan_pg_major_version ~ '/bin' }}"
-    erawan_pg_reset_marker: "{{ '/var/lib/postgresql/.erawan-pgsql-reset-' ~ deployment_job_id ~ '-' ~ erawan_pg_node_name }}"
-    erawan_etcd_reset_marker: "{{ '/var/lib/etcd/.erawan-etcd-reset-' ~ deployment_job_id ~ '-' ~ erawan_pg_node_name }}"
+- name: Rediscover PostgreSQL runtime facts for this step
+  ansible.builtin.import_tasks: 00_runtime_facts.yml
   tags: ["base_config"]
 
 - name: Stop Patroni service before reconfiguration
