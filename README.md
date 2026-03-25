@@ -115,9 +115,15 @@ curl http://127.0.0.1:8080/health
 | `TENANTS_DIR` | `/var/lib/erawan-cluster/haproxy/tenants` | HAProxy tenant config directory |
 | `HAPROXY_RELOAD_CMD` | `sudo /bin/systemctl reload haproxy` | HAProxy reload command |
 | `CLUSTER_STATE_DIR` | `/var/lib/erawan-cluster/cluster/jobs` | Job state directory |
+| `PGSQL_CLUSTER_STATE_DIR` | `<CLUSTER_STATE_DIR>/pgsql` | PostgreSQL job state directory |
 | `ANSIBLE_PLAYBOOK_BIN` | `ansible-playbook` | Ansible binary path |
+| `MYSQL_DEPLOY_PLAYBOOK` | `<project>/cluster/mysql/playbooks/deploy.yml` | MySQL deploy playbook path |
+| `MYSQL_ROLLBACK_PLAYBOOK` | `<project>/cluster/mysql/playbooks/rollback.yml` | MySQL rollback playbook path |
+| `PGSQL_DEPLOY_PLAYBOOK` | `<project>/cluster/pgsql/playbooks/deploy.yml` | PostgreSQL deploy playbook path |
 | `MYSQL_ANSIBLE_DEBUG` | `false` | Stream live Ansible logs to journal |
 | `MYSQL_ANSIBLE_VERBOSITY` | `0` | Ansible verbosity level (1–4) |
+| `PGSQL_ANSIBLE_DEBUG` | `false` | Stream live PostgreSQL Ansible logs to journal |
+| `PGSQL_ANSIBLE_VERBOSITY` | `0` | PostgreSQL Ansible verbosity level (1–4) |
 
 ---
 

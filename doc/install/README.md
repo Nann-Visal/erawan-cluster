@@ -22,6 +22,7 @@ All guides use the same production layout:
 /opt/erawan-cluster/cluster/                  # Ansible playbooks
 /etc/erawan-cluster/.env                      # API config (root-owned, group-readable)
 /var/lib/erawan-cluster/cluster/jobs/         # MySQL job state
+/var/lib/erawan-cluster/cluster/jobs/pgsql/   # PostgreSQL job state (default)
 /var/lib/erawan-cluster/haproxy/tenants/      # Generated HAProxy tenant configs
 /etc/systemd/system/erawan-cluster.service    # API systemd unit
 ```
