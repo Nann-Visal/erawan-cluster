@@ -1,5 +1,5 @@
 - name: Rediscover PostgreSQL runtime facts for this step
-  ansible.builtin.import_tasks: 00_runtime_facts.yml
+  ansible.builtin.import_tasks: runtime_facts.yml
   tags: ["cluster_bootstrap"]
 
 - name: Check whether etcd data reset already ran for this job
