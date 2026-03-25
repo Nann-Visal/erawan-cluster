@@ -38,6 +38,7 @@ HAPROXY_RELOAD_CMD=sudo /bin/systemctl reload haproxy
 CLUSTER_STATE_DIR=/var/lib/erawan-cluster/cluster/jobs
 MYSQL_DEPLOY_PLAYBOOK=/opt/erawan-cluster/cluster/mysql/playbooks/deploy.yml
 MYSQL_ROLLBACK_PLAYBOOK=/opt/erawan-cluster/cluster/mysql/playbooks/rollback.yml
+PGSQL_DEPLOY_PLAYBOOK=/opt/erawan-cluster/cluster/pgsql/playbooks/deploy.yml
 CLUSTER_ANSIBLE_DEBUG=false
 CLUSTER_ANSIBLE_VERBOSITY=0
 CLUSTER_STEP_OUTPUT_MAX_CHARS=8000
