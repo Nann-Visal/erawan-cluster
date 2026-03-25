@@ -2,24 +2,14 @@
   ansible.builtin.import_tasks: 00_runtime_facts.yml
   tags: ["base_config"]
 
-- name: Stop Patroni service before reconfiguration
+- name: Stop services before reconfiguration
   ansible.builtin.systemd:
-    name: patroni
+    name: "{{ item }}"
     state: stopped
-  failed_when: false
-  tags: ["base_config"]
-
-- name: Stop etcd service before reconfiguration
-  ansible.builtin.systemd:
-    name: etcd
-    state: stopped
-  failed_when: false
-  tags: ["base_config"]
-
-- name: Stop versioned PostgreSQL service before Patroni takeover
-  ansible.builtin.systemd:
-    name: "{{ erawan_pg_service_name }}"
-    state: stopped
+  loop:
+    - patroni
+    - etcd
+    - "{{ erawan_pg_service_name }}"
   failed_when: false
   tags: ["base_config"]
 
@@ -37,40 +27,18 @@
   failed_when: false
   tags: ["base_config"]
 
-- name: Ensure etcd configuration directory exists
+- name: Ensure configuration and runtime directories exist
   ansible.builtin.file:
-    path: /etc/etcd
+    path: "{{ item.path }}"
     state: directory
-    owner: root
-    group: root
-    mode: "0755"
-  tags: ["base_config"]
-
-- name: Ensure Patroni configuration directory exists
-  ansible.builtin.file:
-    path: /etc/patroni
-    state: directory
-    owner: postgres
-    group: postgres
-    mode: "0755"
-  tags: ["base_config"]
-
-- name: Ensure etcd systemd override directory exists
-  ansible.builtin.file:
-    path: /etc/systemd/system/etcd.service.d
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-  tags: ["base_config"]
-
-- name: Ensure PostgreSQL runtime directory exists
-  ansible.builtin.file:
-    path: /var/run/postgresql
-    state: directory
-    owner: postgres
-    group: postgres
-    mode: "2775"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "/etc/etcd", owner: "root", group: "root", mode: "0755" }
+    - { path: "/etc/patroni", owner: "postgres", group: "postgres", mode: "0755" }
+    - { path: "/etc/systemd/system/etcd.service.d", owner: "root", group: "root", mode: "0755" }
+    - { path: "/var/run/postgresql", owner: "postgres", group: "postgres", mode: "2775" }
   tags: ["base_config"]
 
 - name: Ensure Patroni pgpass file exists
@@ -152,14 +120,11 @@
   when: etcd_unit.changed or patroni_unit.changed
   tags: ["base_config"]
 
-- name: Ensure etcd service is enabled
+- name: Ensure core services are enabled
   ansible.builtin.systemd:
-    name: etcd
+    name: "{{ item }}"
     enabled: true
-  tags: ["base_config"]
-
-- name: Ensure Patroni service is enabled
-  ansible.builtin.systemd:
-    name: patroni
-    enabled: true
+  loop:
+    - etcd
+    - patroni
   tags: ["base_config"]
