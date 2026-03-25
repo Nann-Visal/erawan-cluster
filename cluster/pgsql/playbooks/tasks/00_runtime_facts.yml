@@ -46,6 +46,9 @@
   ansible.builtin.set_fact:
     erawan_pg_node_id: "{{ (groups['all'] | list).index(inventory_hostname) + 1 }}"
     erawan_pg_node_name: "{{ 'node' ~ ((groups['all'] | list).index(inventory_hostname) + 1) }}"
+
+- name: Derive PostgreSQL service and marker paths
+  ansible.builtin.set_fact:
     erawan_pg_service_name: "{{ 'postgresql@' ~ erawan_pg_major_version ~ '-' ~ postgresql_cluster_name }}"
     erawan_pg_data_directory: "{{ '/var/lib/postgresql/' ~ erawan_pg_major_version ~ '/' ~ postgresql_cluster_name }}"
     erawan_pg_bindir: "{{ '/usr/lib/postgresql/' ~ erawan_pg_major_version ~ '/bin' }}"
