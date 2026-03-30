@@ -21,7 +21,7 @@ Supported topologies:
 On every node the playbooks now create:
 
 - `/etc/etcd/etcd.conf`
-- `/etc/systemd/system/etcd.service.d/override.conf`
+- `/etc/systemd/system/etcd.service`
 - `/etc/patroni/patroni.yml`
 - `/etc/systemd/system/patroni.service`
 
@@ -89,7 +89,7 @@ To resume a failed job:
 ## Deployment flow
 
 1. Preflight checks confirm `psql`, `patroni`, `etcd`, and the PostgreSQL server binaries are present.
-2. Base configuration stops the distro-managed PostgreSQL service, installs the `etcd` override, and installs the Patroni systemd unit.
+2. Base configuration stops the distro-managed PostgreSQL service, installs the `etcd` systemd unit, and installs the Patroni systemd unit.
 3. Primary and standby steps write node-specific Patroni configs and reset the PostgreSQL data directories for a fresh Patroni bootstrap.
 4. Cluster bootstrap starts `etcd` on all nodes, then starts Patroni on the requested primary, then on the standby nodes when `standby_ips` is not empty.
 5. Verification checks systemd state, Patroni REST API membership, and `pg_stat_replication`.

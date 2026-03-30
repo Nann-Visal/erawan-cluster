@@ -37,7 +37,6 @@
   loop:
     - { path: "/etc/etcd", owner: "root", group: "root", mode: "0755" }
     - { path: "/etc/patroni", owner: "postgres", group: "postgres", mode: "0755" }
-    - { path: "/etc/systemd/system/etcd.service.d", owner: "root", group: "root", mode: "0755" }
     - { path: "/var/run/postgresql", owner: "postgres", group: "postgres", mode: "2775" }
   tags: ["base_config"]
 
@@ -69,16 +68,26 @@
       enable-v2: true
   tags: ["base_config"]
 
-- name: Install etcd systemd override
+- name: Install etcd systemd unit
   ansible.builtin.copy:
-    dest: /etc/systemd/system/etcd.service.d/override.conf
+    dest: /etc/systemd/system/etcd.service
     mode: "0644"
     content: |
+      [Unit]
+      Description=etcd key-value store
+      Documentation=https://etcd.io/docs/
+      After=network-online.target
+      Wants=network-online.target
+
       [Service]
-      ExecStart=
+      Type=simple
       ExecStart={{ erawan_etcd_bin_path }} --config-file={{ etcd_config_path }}
       Restart=on-failure
       RestartSec=5
+      LimitNOFILE=65536
+
+      [Install]
+      WantedBy=multi-user.target
   register: etcd_unit
   tags: ["base_config"]
 
