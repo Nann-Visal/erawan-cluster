@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/go-chi/chi/v5"
 	mysqlcluster "erawan-cluster/internal/cluster/mysql"
+	"github.com/go-chi/chi/v5"
 )
 
 func (app *application) deployMySQLClusterHandler(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +29,7 @@ func (app *application) deployMySQLClusterHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	ok(w, "MySQL cluster deployment completed", job)
+	accepted(w, "MySQL cluster deployment started", job)
 }
 
 func (app *application) getMySQLClusterJobHandler(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +79,7 @@ func (app *application) resumeMySQLClusterJobHandler(w http.ResponseWriter, r *h
 		return
 	}
 
-	ok(w, "MySQL cluster job resumed", job)
+	accepted(w, "MySQL cluster job resumed", job)
 }
 
 func (app *application) rollbackMySQLClusterJobHandler(w http.ResponseWriter, r *http.Request) {
