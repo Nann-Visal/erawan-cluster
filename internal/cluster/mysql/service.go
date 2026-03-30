@@ -9,9 +9,12 @@ import (
 )
 
 type Service struct {
-	store  *Store
-	runner *Runner
-	steps  []step
+	store           *Store
+	runner          *Runner
+	steps           []step
+	start           func(func())
+	runDeployStep   func(context.Context, runConfig) StepResult
+	runRollbackStep func(context.Context, string, StoredSpec, SecretInput, time.Duration) StepResult
 }
 
 type step struct {
@@ -21,7 +24,7 @@ type step struct {
 }
 
 func NewService(store *Store, runner *Runner) *Service {
-	return &Service{
+	svc := &Service{
 		store:  store,
 		runner: runner,
 		steps: []step{
@@ -34,9 +37,16 @@ func NewService(store *Store, runner *Runner) *Service {
 			{Name: "init_app_db", Tag: "init_app_db"},
 		},
 	}
+	svc.start = func(fn func()) { go fn() }
+	if runner != nil {
+		svc.runDeployStep = runner.RunDeployStep
+		svc.runRollbackStep = runner.RunRollback
+	}
+	return svc
 }
 
 func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
+	_ = ctx
 	if err := ValidateDeployRequest(&req); err != nil {
 		return nil, err
 	}
@@ -77,13 +87,18 @@ func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 		NewUserPassword:      req.NewUserPassword,
 	}
 
-	if err := s.executeFrom(ctx, job, 0, secrets); err != nil {
-		return job, err
+	bgJob, err := s.store.Load(job.ID)
+	if err != nil {
+		return nil, err
 	}
+	s.start(func() {
+		_ = s.executeFrom(context.Background(), bgJob, 0, secrets)
+	})
 	return job, nil
 }
 
 func (s *Service) Resume(ctx context.Context, jobID string, req ResumeRequest) (*Job, error) {
+	_ = ctx
 	secret, err := ValidateResumeSecrets(req)
 	if err != nil {
 		return nil, err
@@ -98,6 +113,9 @@ func (s *Service) Resume(ctx context.Context, jobID string, req ResumeRequest) (
 	}
 	if job.Status == JobStatusRolledBack {
 		return nil, fmt.Errorf("job %s already rolled back", jobID)
+	}
+	if job.Status == JobStatusRunning {
+		return nil, fmt.Errorf("job %s is already running", jobID)
 	}
 
 	startIndex := job.LastCompletedStep + 1
@@ -119,9 +137,13 @@ func (s *Service) Resume(ctx context.Context, jobID string, req ResumeRequest) (
 		return nil, err
 	}
 
-	if err := s.executeFrom(ctx, job, startIndex, secret); err != nil {
-		return job, err
+	bgJob, err := s.store.Load(job.ID)
+	if err != nil {
+		return nil, err
 	}
+	s.start(func() {
+		_ = s.executeFrom(context.Background(), bgJob, startIndex, secret)
+	})
 	return job, nil
 }
 
@@ -136,7 +158,7 @@ func (s *Service) Rollback(ctx context.Context, jobID string, req RollbackReques
 	}
 
 	timeout := time.Duration(job.Request.StepTimeoutSeconds) * time.Second
-	result := s.runner.RunRollback(ctx, job.ID, job.Request, secret, timeout)
+	result := s.runRollback(ctx, job.ID, job.Request, secret, timeout)
 	job.Steps = append(job.Steps, result)
 
 	if result.Status == JobStatusCompleted {
@@ -201,7 +223,7 @@ func (s *Service) executeFrom(ctx context.Context, job *Job, startIndex int, sec
 			return err
 		}
 
-		res := s.runner.RunDeployStep(ctx, runConfig{
+		res := s.runDeploy(ctx, runConfig{
 			jobID:   job.ID,
 			spec:    job.Request,
 			secret:  secret,
@@ -237,6 +259,34 @@ func (s *Service) executeFrom(ctx context.Context, job *Job, startIndex int, sec
 		return err
 	}
 	return nil
+}
+
+func (s *Service) runDeploy(ctx context.Context, cfg runConfig) StepResult {
+	if s.runDeployStep == nil {
+		return StepResult{
+			Name:      cfg.step.Name,
+			Status:    JobStatusFailed,
+			StartedAt: time.Now().UTC(),
+			EndedAt:   time.Now().UTC(),
+			ExitCode:  -1,
+			Message:   "deploy runner is not configured",
+		}
+	}
+	return s.runDeployStep(ctx, cfg)
+}
+
+func (s *Service) runRollback(ctx context.Context, jobID string, spec StoredSpec, secret SecretInput, timeout time.Duration) StepResult {
+	if s.runRollbackStep == nil {
+		return StepResult{
+			Name:      "rollback",
+			Status:    JobStatusFailed,
+			StartedAt: time.Now().UTC(),
+			EndedAt:   time.Now().UTC(),
+			ExitCode:  -1,
+			Message:   "rollback runner is not configured",
+		}
+	}
+	return s.runRollbackStep(ctx, jobID, spec, secret, timeout)
 }
 
 func (s *Service) updateJobProgress(job *Job) {

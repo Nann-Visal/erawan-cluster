@@ -30,7 +30,7 @@ func (app *application) deployPGSQLClusterHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	ok(w, "PostgreSQL cluster deployment completed", job)
+	accepted(w, "PostgreSQL cluster deployment started", job)
 }
 
 func (app *application) getPGSQLClusterJobHandler(w http.ResponseWriter, r *http.Request) {
@@ -80,5 +80,5 @@ func (app *application) resumePGSQLClusterJobHandler(w http.ResponseWriter, r *h
 		return
 	}
 
-	ok(w, "PostgreSQL cluster job resumed", job)
+	accepted(w, "PostgreSQL cluster job resumed", job)
 }

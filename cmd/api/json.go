@@ -26,6 +26,17 @@ func ok(w http.ResponseWriter, message string, data any) {
 	writeJSON(w, http.StatusOK, body)
 }
 
+func accepted(w http.ResponseWriter, message string, data any) {
+	body := envelope{
+		"status":  "ok",
+		"message": message,
+	}
+	if data != nil {
+		body["data"] = data
+	}
+	writeJSON(w, http.StatusAccepted, body)
+}
+
 func errJSON(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, envelope{
 		"status":  "error",
