@@ -328,17 +328,66 @@ func buildConfigContent(port int, nodeIPs []string, dbPort int) string {
 	b.WriteString(fmt.Sprintf("listen node_%d\n", port))
 	b.WriteString(fmt.Sprintf("    bind *:%d\n", port))
 	b.WriteString("    mode tcp\n")
-	b.WriteString("    balance leastconn\n")
-	b.WriteString("    option tcp-check\n")
-	b.WriteString("    timeout connect 3s\n")
-	b.WriteString("    timeout client  30s\n")
-	b.WriteString("    timeout server  30s\n")
+	b.WriteString("\n")
+	b.WriteString("    # Always use first available healthy server = deterministic primary routing\n")
+	b.WriteString("    balance first\n")
+	b.WriteString("\n")
+	b.WriteString("    # TCP keepalive — keeps idle connections alive through NAT/firewalls\n")
+	b.WriteString("    option clitcpka\n")
+	b.WriteString("    option srvtcpka\n")
+	b.WriteString("\n")
+	b.WriteString("    # Proper timeouts\n")
+	b.WriteString("    timeout connect  5s\n")
+	b.WriteString("    timeout check    2s\n")
+	b.WriteString("    timeout queue    10s\n")
+	b.WriteString("    timeout client   10m\n")
+	b.WriteString("    timeout server   10m\n")
+	b.WriteString("\n")
+	b.WriteString("    # Faster retry — don't make client wait long during failover\n")
 	b.WriteString("    option redispatch\n")
 	b.WriteString("    retries 3\n")
+	b.WriteString("\n")
+	b.WriteString("    # Health check tuning\n")
+	b.WriteString("    # fall 3  = mark DOWN after 3 consecutive failures (avoid flapping)\n")
+	b.WriteString("    # rise 2  = mark UP after 2 consecutive successes (avoid premature recovery)\n")
+	b.WriteString("    # inter   = check every 2s when healthy\n")
+	b.WriteString("    # fastinter = check every 500ms when just failed (detect recovery fast)\n")
+	b.WriteString("    # downinter = check every 1s when DOWN\n")
+	b.WriteString("    # on-marked-down shutdown-sessions = kill connections immediately when server goes down\n")
+	b.WriteString("    default-server inter 2s fastinter 500ms downinter 1s fall 3 rise 2 on-marked-down shutdown-sessions on-marked-up shutdown-backup-sessions\n")
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("    # MySQL Router %s port — port %d = %s\n", dbPortRole(dbPort), dbPort, dbPortMode(dbPort)))
+	b.WriteString("    # Use first server as primary, others as backup\n")
 	for i, ip := range nodeIPs {
-		b.WriteString(fmt.Sprintf("    server db%d %s:%d check inter 2s fall 3 rise 2\n", i+1, ip, dbPort))
+		b.WriteString(fmt.Sprintf("    server db%d %s:%d check", i+1, ip, dbPort))
+		if i > 0 {
+			b.WriteString(" backup")
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func dbPortRole(port int) string {
+	switch port {
+	case 6446:
+		return "write"
+	case 6447:
+		return "read"
+	default:
+		return "backend"
+	}
+}
+
+func dbPortMode(port int) string {
+	switch port {
+	case 6446:
+		return "R/W, always primary"
+	case 6447:
+		return "R/O, read replicas"
+	default:
+		return "custom"
+	}
 }
 
 func copyFile(src, dst string) error {
