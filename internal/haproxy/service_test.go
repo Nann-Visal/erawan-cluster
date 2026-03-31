@@ -5,6 +5,23 @@ import (
 	"testing"
 )
 
+func TestNormalizeNodeIPsAllowsIPsAndHostnames(t *testing.T) {
+	got, err := NormalizeNodeIPs([]string{"10.10.95.211", "db-router-2", "db-router-3.local"})
+	if err != nil {
+		t.Fatalf("NormalizeNodeIPs returned error: %v", err)
+	}
+	want := []string{"10.10.95.211", "db-router-2", "db-router-3.local"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("unexpected normalized hosts: got %v want %v", got, want)
+	}
+}
+
+func TestNormalizeNodeIPsRejectsInvalidHostname(t *testing.T) {
+	if _, err := NormalizeNodeIPs([]string{"bad_host_name"}); err == nil {
+		t.Fatal("expected invalid hostname to be rejected")
+	}
+}
+
 func TestBuildConfigContentUsesFailoverFriendlyTCPSettings(t *testing.T) {
 	cfg := buildConfigContent(25010, []string{"10.10.255.102", "10.10.146.139"}, 6446)
 

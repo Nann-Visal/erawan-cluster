@@ -60,7 +60,7 @@ func ValidatePort(port int, field string) error {
 
 func NormalizeNodeIPs(raw []string) ([]string, error) {
 	if len(raw) == 0 {
-		return nil, fmt.Errorf("node_ips must contain at least one IP address")
+		return nil, fmt.Errorf("node_ips must contain at least one IP address or hostname")
 	}
 
 	normalized := make([]string, 0, len(raw))
@@ -73,8 +73,8 @@ func NormalizeNodeIPs(raw []string) ([]string, error) {
 		if strings.ContainsAny(host, " \n\r\t") {
 			return nil, fmt.Errorf("node_ips[%d] contains invalid whitespace", i+1)
 		}
-		if ip := net.ParseIP(host); ip == nil {
-			return nil, fmt.Errorf("node_ips[%d] must be a valid IP address", i+1)
+		if !isValidBackendHost(host) {
+			return nil, fmt.Errorf("node_ips[%d] must be a valid IP address or hostname", i+1)
 		}
 		if _, ok := seen[host]; ok {
 			continue
@@ -83,9 +83,35 @@ func NormalizeNodeIPs(raw []string) ([]string, error) {
 		normalized = append(normalized, host)
 	}
 	if len(normalized) == 0 {
-		return nil, fmt.Errorf("node_ips must contain at least one IP address")
+		return nil, fmt.Errorf("node_ips must contain at least one IP address or hostname")
 	}
 	return normalized, nil
+}
+
+func isValidBackendHost(host string) bool {
+	if net.ParseIP(host) != nil {
+		return true
+	}
+
+	labels := strings.Split(host, ".")
+	if len(labels) == 0 {
+		return false
+	}
+	for _, label := range labels {
+		if label == "" {
+			return false
+		}
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) CreateConfig(ctx context.Context, in CreateConfigInput) error {
