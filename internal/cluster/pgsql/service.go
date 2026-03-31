@@ -60,6 +60,7 @@ func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 			PrimaryIP:          req.PrimaryIP,
 			StandbyIPs:         req.StandbyIPs,
 			NewUser:            req.NewUser,
+			NewUserSSLRequired: req.NewUserSSLRequiredEnabled(),
 			NewDB:              req.NewDB,
 			SSHUser:            req.SSHUser,
 			SSHPort:            req.SSHPort,

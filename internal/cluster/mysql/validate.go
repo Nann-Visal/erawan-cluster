@@ -23,6 +23,9 @@ func ValidateDeployRequest(req *DeployRequest) error {
 	if req.ClusterName == "" {
 		req.ClusterName = "prodCluster"
 	}
+	if len(req.StandbyIPs) == 0 && len(req.SecondaryIPs) > 0 {
+		req.StandbyIPs = req.SecondaryIPs
+	}
 
 	if strings.TrimSpace(req.RootPassword) == "" {
 		return fmt.Errorf("root_password is required")
@@ -67,16 +70,16 @@ func ValidateDeployRequest(req *DeployRequest) error {
 		return fmt.Errorf("primary_ip must be a valid IP address")
 	}
 	seen := map[string]struct{}{req.PrimaryIP: {}}
-	for i, ip := range req.SecondaryIPs {
+	for i, ip := range req.StandbyIPs {
 		ip = strings.TrimSpace(ip)
 		if net.ParseIP(ip) == nil {
-			return fmt.Errorf("secondary_ips[%d] must be a valid IP address", i)
+			return fmt.Errorf("standby_ips[%d] must be a valid IP address", i)
 		}
 		if _, ok := seen[ip]; ok {
 			return fmt.Errorf("duplicate IP detected: %s", ip)
 		}
 		seen[ip] = struct{}{}
-		req.SecondaryIPs[i] = ip
+		req.StandbyIPs[i] = ip
 	}
 
 	if req.SSHPort <= 0 || req.SSHPort > 65535 {

@@ -47,6 +47,7 @@ Use a PostgreSQL deploy body like this:
   "admin_password": "adminpassword",
   "new_user": "appuser",
   "new_user_password": "AppUser#2026",
+  "new_user_ssl_required": true,
   "new_db": "appdb",
   "ssh_user": "root",
   "ssh_password": "password",
@@ -93,6 +94,8 @@ To resume a failed job:
 3. Primary and standby steps write node-specific Patroni configs and reset the PostgreSQL data directories for a fresh Patroni bootstrap.
 4. Cluster bootstrap starts `etcd` on all nodes, then starts Patroni on the requested primary, then on the standby nodes when `standby_ips` is not empty.
 5. Verification checks systemd state, Patroni REST API membership, and `pg_stat_replication`.
+
+When `new_user_ssl_required` is omitted, it defaults to `true`.
 
 ## Optional modes
 

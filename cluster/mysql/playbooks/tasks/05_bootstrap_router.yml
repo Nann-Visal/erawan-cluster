@@ -16,9 +16,9 @@
 
     desired = {"%", "localhost", "127.0.0.1", "::1",
                "primary", {{ primary_ip | to_json }}}
-    for i in range(1, len({{ secondary_ips | to_json }}) + 1):
-      desired.add(f"secondary_{i}")
-    for ip in {{ secondary_ips | to_json }}:
+    for i in range(1, len({{ standby_ips | to_json }}) + 1):
+      desired.add(f"standby_{i}")
+    for ip in {{ standby_ips | to_json }}:
       desired.add(str(ip))
 
     existing = session.run_sql(

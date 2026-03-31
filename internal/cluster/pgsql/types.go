@@ -1,6 +1,9 @@
 package pgsql
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 const (
 	JobStatusPending   = "pending"
@@ -18,6 +21,7 @@ type DeployRequest struct {
 	AdminPassword      string   `json:"admin_password"`
 	NewUser            string   `json:"new_user"`
 	NewUserPassword    string   `json:"new_user_password"`
+	NewUserSSLRequired *bool    `json:"new_user_ssl_required"`
 	NewDB              string   `json:"new_db"`
 	SSHUser            string   `json:"ssh_user"`
 	SSHPassword        string   `json:"ssh_password"`
@@ -62,6 +66,7 @@ type StoredSpec struct {
 	PrimaryIP          string   `json:"primary_ip"`
 	StandbyIPs         []string `json:"standby_ips"`
 	NewUser            string   `json:"new_user"`
+	NewUserSSLRequired bool     `json:"new_user_ssl_required"`
 	NewDB              string   `json:"new_db"`
 	SSHUser            string   `json:"ssh_user"`
 	SSHPort            int      `json:"ssh_port"`
@@ -75,4 +80,30 @@ type SecretInput struct {
 	AdminPassword      string
 	SSHPassword        string
 	NewUserPassword    string
+}
+
+func (r DeployRequest) NewUserSSLRequiredEnabled() bool {
+	if r.NewUserSSLRequired == nil {
+		return true
+	}
+	return *r.NewUserSSLRequired
+}
+
+func (s *StoredSpec) UnmarshalJSON(data []byte) error {
+	type alias StoredSpec
+	aux := struct {
+		*alias
+		NewUserSSLRequired *bool `json:"new_user_ssl_required"`
+	}{
+		alias: (*alias)(s),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.NewUserSSLRequired == nil {
+		s.NewUserSSLRequired = true
+	} else {
+		s.NewUserSSLRequired = *aux.NewUserSSLRequired
+	}
+	return nil
 }

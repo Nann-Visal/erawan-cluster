@@ -109,6 +109,7 @@ func (r *Runner) run(ctx context.Context, cfg runConfig) (result StepResult) {
 		"patroni_admin_password":      cfg.secret.AdminPassword,
 		"new_user":                    cfg.spec.NewUser,
 		"new_user_password":           cfg.secret.NewUserPassword,
+		"new_user_ssl_required":       cfg.spec.NewUserSSLRequired,
 		"new_db":                      cfg.spec.NewDB,
 		"postgres_port":               cfg.spec.PostgresPort,
 		"postgresql_version_hint":     defaultPostgreSQLVersionHint,

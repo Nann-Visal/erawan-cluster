@@ -61,7 +61,7 @@ func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 			ClusterAdminUsername: req.ClusterAdminUsername,
 			ClusterName:          req.ClusterName,
 			PrimaryIP:            req.PrimaryIP,
-			SecondaryIPs:         req.SecondaryIPs,
+			StandbyIPs:           req.StandbyIPs,
 			NewUser:              req.NewUser,
 			NewUserSSLRequired:   req.NewUserSSLRequired,
 			NewDB:                req.NewDB,
@@ -327,8 +327,8 @@ func completedSteps(job *Job) int {
 }
 
 func shouldSkipStep(st step, spec StoredSpec) (string, bool) {
-	if st.Name == "add_instances" && len(spec.SecondaryIPs) == 0 {
-		return "secondary_ips is empty", true
+	if st.Name == "add_instances" && len(spec.StandbyIPs) == 0 {
+		return "standby_ips is empty", true
 	}
 	if st.Name == "init_app_db" && (spec.NewUser == "" || spec.NewDB == "") {
 		return "new_user/new_db not provided", true

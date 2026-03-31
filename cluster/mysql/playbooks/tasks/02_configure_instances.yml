@@ -4,8 +4,8 @@
     marker: "# {mark} ERAWAN MYSQL CLUSTER"
     block: |
       {{ primary_ip }} primary
-      {% for ip in secondary_ips %}
-      {{ ip }} secondary_{{ loop.index }}
+      {% for ip in standby_ips %}
+      {{ ip }} standby_{{ loop.index }}
       {% endfor %}
   tags: ["configure_instances", "prepare_hosts"]
 

@@ -13,7 +13,7 @@
       "password": root_password
     })
     cluster = dba.get_cluster({{ cluster_name | to_json }})
-    for host in {{ secondary_ips | to_json }}:
+    for host in {{ standby_ips | to_json }}:
       endpoint = f"root@{host}:{mysql_port}"
       try:
         cluster.add_instance(endpoint, {
