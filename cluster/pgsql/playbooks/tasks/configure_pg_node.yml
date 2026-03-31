@@ -55,6 +55,14 @@
           - encoding: UTF8
           - data-checksums
         pg_hba:
+      {% if (new_user | default('') | string | length) > 0 and (new_db | default('') | string | length) > 0 %}
+      {% if new_user_ssl_required | default(true) | bool %}
+          - hostssl {{ new_db }} {{ new_user }} 0.0.0.0/0 md5
+          - hostnossl {{ new_db }} {{ new_user }} 0.0.0.0/0 reject
+      {% else %}
+          - host {{ new_db }} {{ new_user }} 0.0.0.0/0 md5
+      {% endif %}
+      {% endif %}
           - host replication {{ replication_user }} 0.0.0.0/0 md5
           - host all all 0.0.0.0/0 md5
         users:

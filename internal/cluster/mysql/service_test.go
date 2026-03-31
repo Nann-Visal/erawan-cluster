@@ -149,3 +149,13 @@ func TestResumeSchedulesBackgroundExecution(t *testing.T) {
 		t.Fatalf("expected running job status, got %q", resumed.Status)
 	}
 }
+
+func TestShouldSkipStepSkipsAddInstancesWhenNoStandbys(t *testing.T) {
+	reason, skip := shouldSkipStep(step{Name: "add_instances"}, StoredSpec{})
+	if !skip {
+		t.Fatal("expected add_instances to be skipped when standby_ips is empty")
+	}
+	if reason != "standby_ips is empty" {
+		t.Fatalf("unexpected skip reason: %q", reason)
+	}
+}

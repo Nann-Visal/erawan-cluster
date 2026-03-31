@@ -110,7 +110,7 @@ func (r *Runner) run(ctx context.Context, cfg runConfig, playbook string) (resul
 		"cluster_admin_password": cfg.secret.ClusterAdminPassword,
 		"root_password":          cfg.secret.RootPassword,
 		"primary_ip":             cfg.spec.PrimaryIP,
-		"secondary_ips":          cfg.spec.SecondaryIPs,
+		"standby_ips":            cfg.spec.StandbyIPs,
 		"new_user":               cfg.spec.NewUser,
 		"new_user_password":      cfg.secret.NewUserPassword,
 		"new_user_ssl_required":  cfg.spec.NewUserSSLRequired,
@@ -202,18 +202,18 @@ func buildInventoryYAML(spec StoredSpec, secret SecretInput) string {
 	}
 
 	writeHost("primary", spec.PrimaryIP)
-	for i, ip := range spec.SecondaryIPs {
-		writeHost(fmt.Sprintf("secondary_%d", i+1), ip)
+	for i, ip := range spec.StandbyIPs {
+		writeHost(fmt.Sprintf("standby_%d", i+1), ip)
 	}
 
 	b.WriteString("  children:\n")
 	b.WriteString("    mysql_primary:\n")
 	b.WriteString("      hosts:\n")
 	b.WriteString("        primary: {}\n")
-	b.WriteString("    mysql_secondary:\n")
+	b.WriteString("    mysql_standby:\n")
 	b.WriteString("      hosts:\n")
-	for i := range spec.SecondaryIPs {
-		b.WriteString(fmt.Sprintf("        secondary_%d: {}\n", i+1))
+	for i := range spec.StandbyIPs {
+		b.WriteString(fmt.Sprintf("        standby_%d: {}\n", i+1))
 	}
 	return b.String()
 }

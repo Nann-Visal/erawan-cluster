@@ -28,7 +28,7 @@ Use a MySQL deploy body like this:
   "cluster_admin_password": "ClusterAdmin#2026",
   "cluster_name": "prodCluster",
   "primary_ip": "192.168.122.154",
-  "secondary_ips": ["192.168.122.111"],
+  "standby_ips": ["192.168.122.111"],
   "new_user": "appuser",
   "new_user_password": "AppUser#2026",
   "new_user_ssl_required": true,
@@ -67,7 +67,7 @@ To roll back a MySQL job:
 ## Field behavior
 
 - `primary_ip`: node used to create the initial InnoDB Cluster.
-- `secondary_ips`: optional list of replica nodes to add after cluster creation.
+- `standby_ips`: optional list of replica nodes to add after cluster creation.
 - `bootstrap_router`: when `true`, bootstraps MySQL Router on all DB nodes.
 - `assume_prepared`: when `true`, skips preflight and instance-configuration steps.
 - `new_user`, `new_user_password`, `new_db`: optional application database bootstrap.
@@ -78,7 +78,7 @@ To roll back a MySQL job:
 1. Preflight checks confirm MySQL, MySQL Shell, and connectivity prerequisites are present.
 2. Instance configuration prepares each node for InnoDB Cluster and creates or updates the cluster admin account.
 3. Cluster creation runs on the requested primary node.
-4. Secondary nodes are added with clone-based recovery when `secondary_ips` is not empty.
+4. Secondary nodes are added with clone-based recovery when `standby_ips` is not empty.
 5. MySQL Router is bootstrapped on all nodes when `bootstrap_router` is enabled.
 6. Verification checks cluster health and router state.
 7. Optional application database and user creation runs on the primary.
@@ -117,7 +117,7 @@ To roll back a MySQL job:
 
 Single-node mode:
 
-- Leave `secondary_ips` empty.
+- Leave `standby_ips` empty.
 - The `add_instances` step is skipped automatically.
 
 Prepared-node mode:

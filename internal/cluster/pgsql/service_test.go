@@ -26,6 +26,9 @@ func TestValidateDeployRequestAllowsPrimaryOnlyTopology(t *testing.T) {
 	if req.PostgresPort != 5432 {
 		t.Fatalf("expected default postgres_port=5432, got %d", req.PostgresPort)
 	}
+	if !req.NewUserSSLRequiredEnabled() {
+		t.Fatal("expected new_user_ssl_required to default to true")
+	}
 }
 
 func TestShouldSkipStepSkipsStandbyConfigWhenNoStandbys(t *testing.T) {
@@ -80,6 +83,9 @@ func TestDeploySchedulesBackgroundExecution(t *testing.T) {
 	}
 	if saved.ID != job.ID {
 		t.Fatalf("expected saved job id %q, got %q", job.ID, saved.ID)
+	}
+	if !saved.Request.NewUserSSLRequired {
+		t.Fatal("expected stored request to default new_user_ssl_required to true")
 	}
 }
 

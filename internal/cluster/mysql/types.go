@@ -1,6 +1,9 @@
 package mysql
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 const (
 	JobStatusPending    = "pending"
@@ -16,7 +19,8 @@ type DeployRequest struct {
 	ClusterAdminPassword string   `json:"cluster_admin_password"`
 	ClusterName          string   `json:"cluster_name"`
 	PrimaryIP            string   `json:"primary_ip"`
-	SecondaryIPs         []string `json:"secondary_ips"`
+	StandbyIPs           []string `json:"standby_ips"`
+	SecondaryIPs         []string `json:"secondary_ips,omitempty"`
 	NewUser              string   `json:"new_user"`
 	NewUserPassword      string   `json:"new_user_password"`
 	NewUserSSLRequired   bool     `json:"new_user_ssl_required"`
@@ -80,7 +84,7 @@ type StoredSpec struct {
 	ClusterAdminUsername string   `json:"cluster_admin_username"`
 	ClusterName          string   `json:"cluster_name"`
 	PrimaryIP            string   `json:"primary_ip"`
-	SecondaryIPs         []string `json:"secondary_ips"`
+	StandbyIPs           []string `json:"standby_ips"`
 	NewUser              string   `json:"new_user"`
 	NewUserSSLRequired   bool     `json:"new_user_ssl_required"`
 	NewDB                string   `json:"new_db"`
@@ -97,4 +101,21 @@ type SecretInput struct {
 	ClusterAdminPassword string
 	SSHPassword          string
 	NewUserPassword      string
+}
+
+func (s *StoredSpec) UnmarshalJSON(data []byte) error {
+	type alias StoredSpec
+	aux := struct {
+		*alias
+		SecondaryIPs []string `json:"secondary_ips"`
+	}{
+		alias: (*alias)(s),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if len(s.StandbyIPs) == 0 && len(aux.SecondaryIPs) > 0 {
+		s.StandbyIPs = aux.SecondaryIPs
+	}
+	return nil
 }
