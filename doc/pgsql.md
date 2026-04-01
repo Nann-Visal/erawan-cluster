@@ -32,6 +32,9 @@ The generated Patroni config follows this layout:
 - REST API on `:8008`
 - etcd client endpoints on `:2379`
 - PostgreSQL on `:5432`
+- PostgreSQL SSL enabled with the distro default snakeoil certificate and key:
+  - `/etc/ssl/certs/ssl-cert-snakeoil.pem`
+  - `/etc/ssl/private/ssl-cert-snakeoil.key`
 
 ## API payload
 
@@ -96,6 +99,7 @@ To resume a failed job:
 5. Verification checks systemd state, Patroni REST API membership, and `pg_stat_replication`.
 
 When `new_user_ssl_required` is omitted, it defaults to `true`.
+The generated Patroni PostgreSQL settings also enable server-side TLS using the default PostgreSQL install certificate paths above, so `hostssl` rules can be enforced.
 
 ## Optional modes
 
