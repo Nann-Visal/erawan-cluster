@@ -8,13 +8,10 @@ import (
 
 func TestValidateDeployRequestAllowsPrimaryOnlyTopology(t *testing.T) {
 	req := DeployRequest{
-		PrimaryIP:          "10.0.0.1",
-		StandbyIPs:         []string{},
-		PostgresPassword:   "postgrespassword",
-		ReplicatorPassword: "replicatorpassword",
-		AdminPassword:      "adminpassword",
-		SSHUser:            "root",
-		SSHPassword:        "password",
+		PrimaryIP:   "10.0.0.1",
+		StandbyIPs:  []string{},
+		SSHUser:     "root",
+		SSHPassword: "password",
 	}
 
 	if err := ValidateDeployRequest(&req); err != nil {
@@ -56,9 +53,6 @@ func TestDeploySchedulesBackgroundExecution(t *testing.T) {
 	job, err := svc.Deploy(context.Background(), DeployRequest{
 		ClusterName:        "postgres-cluster",
 		PrimaryIP:          "10.0.0.1",
-		PostgresPassword:   "postgrespassword",
-		ReplicatorPassword: "replicatorpassword",
-		AdminPassword:      "adminpassword",
 		SSHUser:            "root",
 		SSHPassword:        "password",
 		SSHPort:            22,
@@ -121,10 +115,7 @@ func TestResumeSchedulesBackgroundExecution(t *testing.T) {
 	}
 
 	resumed, err := svc.Resume(context.Background(), job.ID, ResumeRequest{
-		PostgresPassword:   "postgrespassword",
-		ReplicatorPassword: "replicatorpassword",
-		AdminPassword:      "adminpassword",
-		SSHPassword:        "password",
+		SSHPassword: "password",
 	})
 	if err != nil {
 		t.Fatalf("resume: %v", err)

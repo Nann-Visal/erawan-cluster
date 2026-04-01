@@ -45,9 +45,6 @@ Use a PostgreSQL deploy body like this:
   "cluster_name": "postgres-cluster",
   "primary_ip": "10.0.0.1",
   "standby_ips": [],
-  "postgres_password": "postgrespassword",
-  "replicator_password": "replicatorpassword",
-  "admin_password": "adminpassword",
   "new_user": "appuser",
   "new_user_password": "AppUser#2026",
   "new_user_ssl_required": true,
@@ -67,9 +64,6 @@ HA example with standby nodes:
   "cluster_name": "postgres-cluster",
   "primary_ip": "10.0.0.1",
   "standby_ips": ["10.0.0.2", "10.0.0.3"],
-  "postgres_password": "postgrespassword",
-  "replicator_password": "replicatorpassword",
-  "admin_password": "adminpassword",
   "ssh_user": "root",
   "ssh_password": "password",
   "ssh_port": 22,
@@ -82,9 +76,6 @@ To resume a failed job:
 
 ```json
 {
-  "postgres_password": "postgrespassword",
-  "replicator_password": "replicatorpassword",
-  "admin_password": "adminpassword",
   "ssh_password": "password",
   "new_user_password": "AppUser#2026"
 }
@@ -100,6 +91,7 @@ To resume a failed job:
 
 When `new_user_ssl_required` is omitted, it defaults to `true`.
 The generated Patroni PostgreSQL settings also enable server-side TLS using the default PostgreSQL install certificate paths above, so `hostssl` rules can be enforced.
+The automation internally generates and manages the PostgreSQL superuser, replication, and Patroni admin passwords unless you explicitly provide them.
 
 ## Optional modes
 

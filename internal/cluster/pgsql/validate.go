@@ -23,15 +23,6 @@ func ValidateDeployRequest(req *DeployRequest) error {
 		req.ClusterName = "postgres-cluster"
 	}
 
-	if strings.TrimSpace(req.PostgresPassword) == "" {
-		return fmt.Errorf("postgres_password is required")
-	}
-	if strings.TrimSpace(req.ReplicatorPassword) == "" {
-		return fmt.Errorf("replicator_password is required")
-	}
-	if strings.TrimSpace(req.AdminPassword) == "" {
-		return fmt.Errorf("admin_password is required")
-	}
 	if strings.TrimSpace(req.SSHPassword) == "" {
 		return fmt.Errorf("ssh_password is required")
 	}
@@ -108,8 +99,8 @@ func ValidateResumeSecrets(req ResumeRequest) (SecretInput, error) {
 		SSHPassword:        strings.TrimSpace(req.SSHPassword),
 		NewUserPassword:    strings.TrimSpace(req.NewUserPassword),
 	}
-	if secret.PostgresPassword == "" || secret.ReplicatorPassword == "" || secret.AdminPassword == "" || secret.SSHPassword == "" {
-		return SecretInput{}, fmt.Errorf("postgres_password, replicator_password, admin_password, and ssh_password are required")
+	if secret.SSHPassword == "" {
+		return SecretInput{}, fmt.Errorf("ssh_password is required")
 	}
 	return secret, nil
 }

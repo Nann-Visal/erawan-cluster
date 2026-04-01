@@ -21,9 +21,7 @@
     { "key": "PGSQL_PRIMARY_IP", "value": "10.0.0.1" },
     { "key": "PGSQL_STANDBY_IP_1", "value": "10.0.0.2" },
     { "key": "PGSQL_STANDBY_IP_2", "value": "10.0.0.3" },
-    { "key": "POSTGRES_PASSWORD", "value": "postgrespassword" },
-    { "key": "REPLICATOR_PASSWORD", "value": "replicatorpassword" },
-    { "key": "PATRONI_ADMIN_PASSWORD", "value": "adminpassword" }
+    { "key": "PATRONI_ADMIN_PASSWORD", "value": "adminpassword", "disabled": true }
   ],
   "item": [
     {
@@ -259,7 +257,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"cluster_name\": \"{{CLUSTER_NAME}}\",\n  \"primary_ip\": \"{{PGSQL_PRIMARY_IP}}\",\n  \"standby_ips\": [],\n  \"postgres_password\": \"{{POSTGRES_PASSWORD}}\",\n  \"replicator_password\": \"{{REPLICATOR_PASSWORD}}\",\n  \"admin_password\": \"{{PATRONI_ADMIN_PASSWORD}}\",\n  \"new_user\": \"{{NEW_USER}}\",\n  \"new_user_password\": \"{{NEW_USER_PASSWORD}}\",\n  \"new_user_ssl_required\": true,\n  \"new_db\": \"{{NEW_DB}}\",\n  \"ssh_user\": \"root\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"ssh_port\": 22,\n  \"postgres_port\": 5432,\n  \"step_timeout_seconds\": 900\n}"
+              "raw": "{\n  \"cluster_name\": \"{{CLUSTER_NAME}}\",\n  \"primary_ip\": \"{{PGSQL_PRIMARY_IP}}\",\n  \"standby_ips\": [],\n  \"new_user\": \"{{NEW_USER}}\",\n  \"new_user_password\": \"{{NEW_USER_PASSWORD}}\",\n  \"new_user_ssl_required\": true,\n  \"new_db\": \"{{NEW_DB}}\",\n  \"ssh_user\": \"root\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"ssh_port\": 22,\n  \"postgres_port\": 5432,\n  \"step_timeout_seconds\": 900\n}"
             },
             "description": "Use `standby_ips: []` for primary-only mode, or provide one or more standby IPs for HA mode.",
             "url": {
@@ -316,7 +314,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"postgres_password\": \"{{POSTGRES_PASSWORD}}\",\n  \"replicator_password\": \"{{REPLICATOR_PASSWORD}}\",\n  \"admin_password\": \"{{PATRONI_ADMIN_PASSWORD}}\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"new_user_password\": \"{{NEW_USER_PASSWORD}}\"\n}"
+              "raw": "{\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"new_user_password\": \"{{NEW_USER_PASSWORD}}\"\n}"
             },
             "url": {
               "raw": "http://{{API_HOST}}:{{API_PORT}}/cluster/pgsql/jobs/{{JOB_ID}}/resume",

@@ -75,11 +75,18 @@ func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 	}
 
 	secrets := SecretInput{
-		PostgresPassword:   req.PostgresPassword,
-		ReplicatorPassword: req.ReplicatorPassword,
-		AdminPassword:      req.AdminPassword,
+		PostgresPassword:   stringOrGenerated(req.PostgresPassword),
+		ReplicatorPassword: stringOrGenerated(req.ReplicatorPassword),
+		AdminPassword:      stringOrGenerated(req.AdminPassword),
 		SSHPassword:        req.SSHPassword,
 		NewUserPassword:    req.NewUserPassword,
+	}
+	if err := s.store.SaveSecret(job.ID, StoredSecret{
+		PostgresPassword:   secrets.PostgresPassword,
+		ReplicatorPassword: secrets.ReplicatorPassword,
+		AdminPassword:      secrets.AdminPassword,
+	}); err != nil {
+		return nil, err
 	}
 
 	bgJob, err := s.store.Load(job.ID)
@@ -119,6 +126,36 @@ func (s *Service) Resume(ctx context.Context, jobID string, req ResumeRequest) (
 	}
 	if job.Request.NewUser != "" && secret.NewUserPassword == "" {
 		return nil, fmt.Errorf("new_user_password is required to resume job %s", jobID)
+	}
+	if secret.PostgresPassword == "" || secret.ReplicatorPassword == "" || secret.AdminPassword == "" {
+		storedSecret, err := s.store.LoadSecret(job.ID)
+		if err == nil {
+			if secret.PostgresPassword == "" {
+				secret.PostgresPassword = storedSecret.PostgresPassword
+			}
+			if secret.ReplicatorPassword == "" {
+				secret.ReplicatorPassword = storedSecret.ReplicatorPassword
+			}
+			if secret.AdminPassword == "" {
+				secret.AdminPassword = storedSecret.AdminPassword
+			}
+		}
+	}
+	if secret.PostgresPassword == "" {
+		secret.PostgresPassword = stringOrGenerated("")
+	}
+	if secret.ReplicatorPassword == "" {
+		secret.ReplicatorPassword = stringOrGenerated("")
+	}
+	if secret.AdminPassword == "" {
+		secret.AdminPassword = stringOrGenerated("")
+	}
+	if err := s.store.SaveSecret(job.ID, StoredSecret{
+		PostgresPassword:   secret.PostgresPassword,
+		ReplicatorPassword: secret.ReplicatorPassword,
+		AdminPassword:      secret.AdminPassword,
+	}); err != nil {
+		return nil, err
 	}
 
 	job.Status = JobStatusRunning
@@ -232,6 +269,15 @@ func shouldSkipStep(st step, spec StoredSpec) (string, bool) {
 
 func newJobID() string {
 	raw := make([]byte, 12)
+	_, _ = rand.Read(raw)
+	return hex.EncodeToString(raw)
+}
+
+func stringOrGenerated(value string) string {
+	if value != "" {
+		return value
+	}
+	raw := make([]byte, 24)
 	_, _ = rand.Read(raw)
 	return hex.EncodeToString(raw)
 }

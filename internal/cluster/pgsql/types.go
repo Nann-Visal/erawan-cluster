@@ -82,6 +82,12 @@ type SecretInput struct {
 	NewUserPassword    string
 }
 
+type StoredSecret struct {
+	PostgresPassword   string `json:"postgres_password"`
+	ReplicatorPassword string `json:"replicator_password"`
+	AdminPassword      string `json:"admin_password"`
+}
+
 func (r DeployRequest) NewUserSSLRequiredEnabled() bool {
 	if r.NewUserSSLRequired == nil {
 		return true
