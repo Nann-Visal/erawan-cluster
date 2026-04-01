@@ -48,19 +48,33 @@
   ansible.builtin.shell: |
     set -euo pipefail
     cat >/tmp/reset_gr_state.py <<'PY'
+    import os
+
     shell.options["useWizards"] = False
     host = {{ ansible_host | to_json }}
     port = {{ mysql_port }}
-    root_password = {{ root_password | to_json }}
     local_addr = f"{host}:{port}"
 
-    shell.connect({
-      "user": "root",
-      "host": host,
-      "port": port,
-      "password": root_password
-    })
-    session = shell.get_session()
+    def connect_local_root():
+      last_error = None
+      for socket_path in ("/var/run/mysqld/mysqld.sock", "/run/mysqld/mysqld.sock", "/var/lib/mysql/mysql.sock"):
+        if not os.path.exists(socket_path):
+          continue
+        try:
+          shell.connect({
+            "user": "root",
+            "scheme": "mysql",
+            "host": "localhost",
+            "socket": socket_path
+          })
+          return shell.get_session()
+        except Exception as exc:
+          last_error = exc
+      if last_error is not None:
+        raise last_error
+      raise RuntimeError("unable to find a usable MySQL local socket for root")
+
+    session = connect_local_root()
 
     ignored = (
       "unknown system variable",
@@ -137,10 +151,31 @@
   ansible.builtin.shell: |
     set -euo pipefail
     cat >/tmp/configure_instance.py <<'PY'
+    import os
+
     shell.options["useWizards"] = False
-    instance = "root@{{ ansible_host }}:{{ mysql_port }}"
+    def local_root_connection():
+      last_error = None
+      for socket_path in ("/var/run/mysqld/mysqld.sock", "/run/mysqld/mysqld.sock", "/var/lib/mysql/mysql.sock"):
+        if not os.path.exists(socket_path):
+          continue
+        connection = {
+          "user": "root",
+          "scheme": "mysql",
+          "host": "localhost",
+          "socket": socket_path
+        }
+        try:
+          shell.connect(connection)
+          return connection
+        except Exception as exc:
+          last_error = exc
+      if last_error is not None:
+        raise last_error
+      raise RuntimeError("unable to find a usable MySQL local socket for root")
+
+    instance = local_root_connection()
     options = {
-      "password": {{ root_password | to_json }},
       "clusterAdmin": {{ cluster_admin_username | to_json }},
       "clusterAdminPassword": {{ cluster_admin_password | to_json }},
       "restart": True,
@@ -172,14 +207,29 @@
   ansible.builtin.shell: |
     set -euo pipefail
     cat >/tmp/normalize_cluster_admin.py <<'PY'
+    import os
+
     shell.options["useWizards"] = False
-    shell.connect({
-      "user": "root",
-      "host": {{ ansible_host | to_json }},
-      "port": {{ mysql_port }},
-      "password": {{ root_password | to_json }}
-    })
-    session = shell.get_session()
+    def connect_local_root():
+      last_error = None
+      for socket_path in ("/var/run/mysqld/mysqld.sock", "/run/mysqld/mysqld.sock", "/var/lib/mysql/mysql.sock"):
+        if not os.path.exists(socket_path):
+          continue
+        try:
+          shell.connect({
+            "user": "root",
+            "scheme": "mysql",
+            "host": "localhost",
+            "socket": socket_path
+          })
+          return shell.get_session()
+        except Exception as exc:
+          last_error = exc
+      if last_error is not None:
+        raise last_error
+      raise RuntimeError("unable to find a usable MySQL local socket for root")
+
+    session = connect_local_root()
     admin_user = {{ cluster_admin_username | to_json }}
     admin_pass = {{ cluster_admin_password | to_json }}
     escaped_user = admin_user.replace("`", "``")

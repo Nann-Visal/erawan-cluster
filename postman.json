@@ -10,9 +10,6 @@
     { "key": "API_PORT", "value": "8080" },
     { "key": "API_KEY", "value": "" },
     { "key": "JOB_ID", "value": "" },
-    { "key": "ROOT_PASSWORD", "value": "RootPass#2026" },
-    { "key": "CLUSTER_ADMIN_USERNAME", "value": "clusteradmin" },
-    { "key": "CLUSTER_ADMIN_PASSWORD", "value": "ClusterAdmin#2026" },
     { "key": "SSH_PASSWORD", "value": "password" },
     { "key": "PRIMARY_IP", "value": "192.168.122.154" },
     { "key": "SECONDARY_IP", "value": "192.168.122.111" },
@@ -158,7 +155,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"root_password\": \"{{ROOT_PASSWORD}}\",\n  \"cluster_admin_username\": \"{{CLUSTER_ADMIN_USERNAME}}\",\n  \"cluster_admin_password\": \"{{CLUSTER_ADMIN_PASSWORD}}\",\n  \"cluster_name\": \"{{CLUSTER_NAME}}\",\n  \"primary_ip\": \"{{PRIMARY_IP}}\",\n  \"standby_ips\": [\"{{SECONDARY_IP}}\"],\n  \"new_user\": \"{{NEW_USER}}\",\n  \"new_user_password\": \"{{NEW_USER_PASSWORD}}\",\n  \"new_user_ssl_required\": {{NEW_USER_SSL_REQUIRED}},\n  \"new_db\": \"{{NEW_DB}}\",\n  \"assume_prepared\": false,\n  \"bootstrap_router\": true,\n  \"ssh_user\": \"root\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"ssh_port\": 22,\n  \"mysql_port\": 3306,\n  \"step_timeout_seconds\": 900\n}"
+              "raw": "{\n  \"cluster_name\": \"{{CLUSTER_NAME}}\",\n  \"primary_ip\": \"{{PRIMARY_IP}}\",\n  \"standby_ips\": [\"{{SECONDARY_IP}}\"],\n  \"new_user\": \"{{NEW_USER}}\",\n  \"new_user_password\": \"{{NEW_USER_PASSWORD}}\",\n  \"new_user_ssl_required\": {{NEW_USER_SSL_REQUIRED}},\n  \"new_db\": \"{{NEW_DB}}\",\n  \"assume_prepared\": false,\n  \"bootstrap_router\": true,\n  \"ssh_user\": \"root\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"ssh_port\": 22,\n  \"mysql_port\": 3306,\n  \"step_timeout_seconds\": 900\n}"
             },
             "url": {
               "raw": "http://{{API_HOST}}:{{API_PORT}}/cluster/mysql/deploy",
@@ -214,7 +211,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"root_password\": \"{{ROOT_PASSWORD}}\",\n  \"cluster_admin_password\": \"{{CLUSTER_ADMIN_PASSWORD}}\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"new_user_password\": \"{{NEW_USER_PASSWORD}}\"\n}"
+              "raw": "{\n  \"ssh_password\": \"{{SSH_PASSWORD}}\",\n  \"new_user_password\": \"{{NEW_USER_PASSWORD}}\"\n}"
             },
             "url": {
               "raw": "http://{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs/{{JOB_ID}}/resume",
@@ -235,7 +232,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"root_password\": \"{{ROOT_PASSWORD}}\",\n  \"cluster_admin_password\": \"{{CLUSTER_ADMIN_PASSWORD}}\",\n  \"ssh_password\": \"{{SSH_PASSWORD}}\"\n}"
+              "raw": "{\n  \"ssh_password\": \"{{SSH_PASSWORD}}\"\n}"
             },
             "url": {
               "raw": "http://{{API_HOST}}:{{API_PORT}}/cluster/mysql/jobs/{{JOB_ID}}/rollback",

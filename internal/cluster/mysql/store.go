@@ -39,6 +39,17 @@ func (s *Store) Save(job *Job) error {
 	return os.WriteFile(path, payload, 0o600)
 }
 
+func (s *Store) SaveSecret(jobID string, secret StoredSecret) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	payload, err := json.Marshal(secret)
+	if err != nil {
+		return fmt.Errorf("marshal job secret: %w", err)
+	}
+	return os.WriteFile(s.secretPath(jobID), payload, 0o600)
+}
+
 func (s *Store) Load(jobID string) (*Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -58,6 +69,25 @@ func (s *Store) Load(jobID string) (*Job, error) {
 	return &job, nil
 }
 
+func (s *Store) LoadSecret(jobID string) (StoredSecret, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := os.ReadFile(s.secretPath(jobID))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return StoredSecret{}, fmt.Errorf("job %s secret not found", jobID)
+		}
+		return StoredSecret{}, fmt.Errorf("read job secret: %w", err)
+	}
+
+	var secret StoredSecret
+	if err := json.Unmarshal(data, &secret); err != nil {
+		return StoredSecret{}, fmt.Errorf("decode job secret: %w", err)
+	}
+	return secret, nil
+}
+
 func (s *Store) List(limit int) ([]Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -69,7 +99,7 @@ func (s *Store) List(limit int) ([]Job, error) {
 
 	jobs := make([]Job, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || strings.HasSuffix(entry.Name(), ".secret.json") {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(s.dir, entry.Name()))
@@ -95,4 +125,8 @@ func (s *Store) List(limit int) ([]Job, error) {
 
 func (s *Store) path(jobID string) string {
 	return filepath.Join(s.dir, jobID+".json")
+}
+
+func (s *Store) secretPath(jobID string) string {
+	return filepath.Join(s.dir, jobID+".secret.json")
 }

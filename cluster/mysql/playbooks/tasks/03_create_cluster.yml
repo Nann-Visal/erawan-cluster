@@ -2,19 +2,35 @@
   ansible.builtin.shell: |
     set -euo pipefail
     cat >/tmp/create_cluster.py <<'PY'
+    import os
+
     shell.options["useWizards"] = False
     shell.options["dba.restartWaitTimeout"] = {{ step_timeout_seconds | default(900) | int }}
     cluster_name = {{ cluster_name | to_json }}
     primary_host = {{ primary_ip | to_json }}
     mysql_port = {{ mysql_port }}
     assume_prepared = {{ (assume_prepared | default(false) | bool) | ternary('True', 'False') }}
-    shell.connect({
-      "user": "root",
-      "host": primary_host,
-      "port": mysql_port,
-      "password": {{ root_password | to_json }}
-    })
-    session = shell.get_session()
+
+    def connect_local_root():
+      last_error = None
+      for socket_path in ("/var/run/mysqld/mysqld.sock", "/run/mysqld/mysqld.sock", "/var/lib/mysql/mysql.sock"):
+        if not os.path.exists(socket_path):
+          continue
+        try:
+          shell.connect({
+            "user": "root",
+            "scheme": "mysql",
+            "host": "localhost",
+            "socket": socket_path
+          })
+          return shell.get_session()
+        except Exception as exc:
+          last_error = exc
+      if last_error is not None:
+        raise last_error
+      raise RuntimeError("unable to find a usable MySQL local socket for root")
+
+    session = connect_local_root()
 
     def run_sql_relaxed(stmt):
       ignored = (

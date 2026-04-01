@@ -63,9 +63,9 @@ REST API for automated database cluster lifecycle management and HAProxy configu
 ### MySQL Target Nodes
 - MySQL installed and running
 - `mysqlsh` (MySQL Shell) installed
+- Local MySQL administration as OS `root` available through a Unix socket
 - Supported topology is either 1 primary only or 1 primary plus 1 or more secondary nodes
 - Nodes reachable from API host via SSH
-- MySQL `root` account accessible from API host
 - Nodes can reach each other on MySQL port (default 3306)
 
 ### PostgreSQL Target Nodes

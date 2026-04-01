@@ -103,6 +103,10 @@ type SecretInput struct {
 	NewUserPassword      string
 }
 
+type StoredSecret struct {
+	ClusterAdminPassword string `json:"cluster_admin_password"`
+}
+
 func (s *StoredSpec) UnmarshalJSON(data []byte) error {
 	type alias StoredSpec
 	aux := struct {

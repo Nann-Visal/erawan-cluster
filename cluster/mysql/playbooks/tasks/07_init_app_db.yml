@@ -2,13 +2,27 @@
   ansible.builtin.shell: |
     set -euo pipefail
     cat >/tmp/init_app_db.py <<'PY'
+    import os
+
     shell.options["useWizards"] = False
-    shell.connect({
-      "user": "root",
-      "host": {{ primary_ip | to_json }},
-      "port": {{ mysql_port }},
-      "password": {{ root_password | to_json }}
-    })
+    last_error = None
+    for socket_path in ("/var/run/mysqld/mysqld.sock", "/run/mysqld/mysqld.sock", "/var/lib/mysql/mysql.sock"):
+      if not os.path.exists(socket_path):
+        continue
+      try:
+        shell.connect({
+          "user": "root",
+          "scheme": "mysql",
+          "host": "localhost",
+          "socket": socket_path
+        })
+        break
+      except Exception as exc:
+        last_error = exc
+    else:
+      if last_error is not None:
+        raise last_error
+      raise RuntimeError("unable to find a usable MySQL local socket for root")
 
     session = shell.get_session()
     db_name = {{ new_db | to_json }}

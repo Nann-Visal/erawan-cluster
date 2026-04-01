@@ -70,15 +70,12 @@ func TestDeploySchedulesBackgroundExecution(t *testing.T) {
 	}
 
 	job, err := svc.Deploy(context.Background(), DeployRequest{
-		RootPassword:         "rootpassword",
-		ClusterAdminUsername: "clusteradmin",
-		ClusterAdminPassword: "clusterpassword",
-		ClusterName:          "prodCluster",
-		PrimaryIP:            "10.0.0.1",
-		SSHUser:              "root",
-		SSHPassword:          "password",
-		SSHPort:              22,
-		StepTimeoutSeconds:   30,
+		ClusterName:        "prodCluster",
+		PrimaryIP:          "10.0.0.1",
+		SSHUser:            "root",
+		SSHPassword:        "password",
+		SSHPort:            22,
+		StepTimeoutSeconds: 30,
 	})
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
@@ -135,9 +132,7 @@ func TestResumeSchedulesBackgroundExecution(t *testing.T) {
 	}
 
 	resumed, err := svc.Resume(context.Background(), job.ID, ResumeRequest{
-		RootPassword:         "rootpassword",
-		ClusterAdminPassword: "clusterpassword",
-		SSHPassword:          "password",
+		SSHPassword: "password",
 	})
 	if err != nil {
 		t.Fatalf("resume: %v", err)

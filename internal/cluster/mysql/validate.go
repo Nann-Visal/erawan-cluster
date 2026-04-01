@@ -23,16 +23,13 @@ func ValidateDeployRequest(req *DeployRequest) error {
 	if req.ClusterName == "" {
 		req.ClusterName = "prodCluster"
 	}
+	if req.ClusterAdminUsername == "" {
+		req.ClusterAdminUsername = "clusteradmin"
+	}
 	if len(req.StandbyIPs) == 0 && len(req.SecondaryIPs) > 0 {
 		req.StandbyIPs = req.SecondaryIPs
 	}
 
-	if strings.TrimSpace(req.RootPassword) == "" {
-		return fmt.Errorf("root_password is required")
-	}
-	if strings.TrimSpace(req.ClusterAdminPassword) == "" {
-		return fmt.Errorf("cluster_admin_password is required")
-	}
 	if strings.TrimSpace(req.SSHPassword) == "" {
 		return fmt.Errorf("ssh_password is required")
 	}
@@ -108,8 +105,8 @@ func ValidateResumeSecrets(req ResumeRequest) (SecretInput, error) {
 		SSHPassword:          strings.TrimSpace(req.SSHPassword),
 		NewUserPassword:      strings.TrimSpace(req.NewUserPassword),
 	}
-	if secret.RootPassword == "" || secret.ClusterAdminPassword == "" || secret.SSHPassword == "" {
-		return SecretInput{}, fmt.Errorf("root_password, cluster_admin_password, and ssh_password are required")
+	if secret.SSHPassword == "" {
+		return SecretInput{}, fmt.Errorf("ssh_password is required")
 	}
 	return secret, nil
 }
@@ -120,8 +117,8 @@ func ValidateRollbackSecrets(req RollbackRequest) (SecretInput, error) {
 		ClusterAdminPassword: strings.TrimSpace(req.ClusterAdminPassword),
 		SSHPassword:          strings.TrimSpace(req.SSHPassword),
 	}
-	if secret.RootPassword == "" || secret.ClusterAdminPassword == "" || secret.SSHPassword == "" {
-		return SecretInput{}, fmt.Errorf("root_password, cluster_admin_password, and ssh_password are required")
+	if secret.SSHPassword == "" {
+		return SecretInput{}, fmt.Errorf("ssh_password is required")
 	}
 	return secret, nil
 }

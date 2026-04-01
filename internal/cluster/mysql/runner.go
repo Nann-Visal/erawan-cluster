@@ -108,7 +108,6 @@ func (r *Runner) run(ctx context.Context, cfg runConfig, playbook string) (resul
 		"cluster_name":           cfg.spec.ClusterName,
 		"cluster_admin_username": cfg.spec.ClusterAdminUsername,
 		"cluster_admin_password": cfg.secret.ClusterAdminPassword,
-		"root_password":          cfg.secret.RootPassword,
 		"primary_ip":             cfg.spec.PrimaryIP,
 		"standby_ips":            cfg.spec.StandbyIPs,
 		"new_user":               cfg.spec.NewUser,

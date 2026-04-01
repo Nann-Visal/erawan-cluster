@@ -82,9 +82,12 @@ func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 
 	secrets := SecretInput{
 		RootPassword:         req.RootPassword,
-		ClusterAdminPassword: req.ClusterAdminPassword,
+		ClusterAdminPassword: stringsOrGenerated(req.ClusterAdminPassword),
 		SSHPassword:          req.SSHPassword,
 		NewUserPassword:      req.NewUserPassword,
+	}
+	if err := s.store.SaveSecret(job.ID, StoredSecret{ClusterAdminPassword: secrets.ClusterAdminPassword}); err != nil {
+		return nil, err
 	}
 
 	bgJob, err := s.store.Load(job.ID)
@@ -129,6 +132,17 @@ func (s *Service) Resume(ctx context.Context, jobID string, req ResumeRequest) (
 	if job.Request.NewUser != "" && secret.NewUserPassword == "" {
 		return nil, fmt.Errorf("new_user_password is required to resume job %s", jobID)
 	}
+	if secret.ClusterAdminPassword == "" {
+		storedSecret, err := s.store.LoadSecret(job.ID)
+		if err == nil && storedSecret.ClusterAdminPassword != "" {
+			secret.ClusterAdminPassword = storedSecret.ClusterAdminPassword
+		} else {
+			secret.ClusterAdminPassword = stringsOrGenerated("")
+			if saveErr := s.store.SaveSecret(job.ID, StoredSecret{ClusterAdminPassword: secret.ClusterAdminPassword}); saveErr != nil {
+				return nil, saveErr
+			}
+		}
+	}
 
 	job.Status = JobStatusRunning
 	job.Error = ""
@@ -155,6 +169,9 @@ func (s *Service) Rollback(ctx context.Context, jobID string, req RollbackReques
 	job, err := s.store.Load(jobID)
 	if err != nil {
 		return nil, err
+	}
+	if storedSecret, err := s.store.LoadSecret(job.ID); err == nil && storedSecret.ClusterAdminPassword != "" {
+		secret.ClusterAdminPassword = storedSecret.ClusterAdminPassword
 	}
 
 	timeout := time.Duration(job.Request.StepTimeoutSeconds) * time.Second
@@ -344,6 +361,15 @@ func shouldSkipStep(st step, spec StoredSpec) (string, bool) {
 
 func newJobID() string {
 	raw := make([]byte, 12)
+	_, _ = rand.Read(raw)
+	return hex.EncodeToString(raw)
+}
+
+func stringsOrGenerated(value string) string {
+	if value != "" {
+		return value
+	}
+	raw := make([]byte, 24)
 	_, _ = rand.Read(raw)
 	return hex.EncodeToString(raw)
 }

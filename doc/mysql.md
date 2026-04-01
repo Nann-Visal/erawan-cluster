@@ -6,6 +6,7 @@ This project deploys MySQL HA with MySQL InnoDB Cluster, MySQL Shell, and option
 
 - MySQL is already installed and running on every target node.
 - `mysqlsh` is already installed on every target node.
+- Local MySQL administration as OS `root` works through a Unix socket on every target node.
 - MySQL nodes can reach each other on the MySQL port.
 - The API host can SSH to every target node.
 
@@ -23,9 +24,6 @@ Use a MySQL deploy body like this:
 
 ```json
 {
-  "root_password": "RootPass#2026",
-  "cluster_admin_username": "clusteradmin",
-  "cluster_admin_password": "ClusterAdmin#2026",
   "cluster_name": "prodCluster",
   "primary_ip": "192.168.122.154",
   "standby_ips": ["192.168.122.111"],
@@ -47,8 +45,6 @@ To resume a failed job:
 
 ```json
 {
-  "root_password": "RootPass#2026",
-  "cluster_admin_password": "ClusterAdmin#2026",
   "ssh_password": "password",
   "new_user_password": "AppUser#2026"
 }
@@ -58,8 +54,6 @@ To roll back a MySQL job:
 
 ```json
 {
-  "root_password": "RootPass#2026",
-  "cluster_admin_password": "ClusterAdmin#2026",
   "ssh_password": "password"
 }
 ```
@@ -68,6 +62,7 @@ To roll back a MySQL job:
 
 - `primary_ip`: node used to create the initial InnoDB Cluster.
 - `standby_ips`: optional list of replica nodes to add after cluster creation.
+- `cluster_admin_username`: optional override for the internally managed cluster admin account. Defaults to `clusteradmin`.
 - `bootstrap_router`: when `true`, bootstraps MySQL Router on all DB nodes.
 - `assume_prepared`: when `true`, skips preflight and instance-configuration steps.
 - `new_user`, `new_user_password`, `new_db`: optional application database bootstrap.

@@ -1,23 +1,96 @@
+- name: Refresh cluster admin password on all nodes before join
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cat >/tmp/refresh_cluster_admin.py <<'PY'
+    import os
+
+    shell.options["useWizards"] = False
+
+    def connect_local_root():
+      last_error = None
+      for socket_path in ("/var/run/mysqld/mysqld.sock", "/run/mysqld/mysqld.sock", "/var/lib/mysql/mysql.sock"):
+        if not os.path.exists(socket_path):
+          continue
+        try:
+          shell.connect({
+            "user": "root",
+            "scheme": "mysql",
+            "host": "localhost",
+            "socket": socket_path
+          })
+          return shell.get_session()
+        except Exception as exc:
+          last_error = exc
+      if last_error is not None:
+        raise last_error
+      raise RuntimeError("unable to find a usable MySQL local socket for root")
+
+    session = connect_local_root()
+    admin_user = {{ cluster_admin_username | to_json }}
+    admin_pass = {{ cluster_admin_password | to_json }}
+    escaped_user = admin_user.replace("`", "``")
+
+    session.run_sql(
+      f"CREATE USER IF NOT EXISTS `{escaped_user}`@'%' IDENTIFIED WITH mysql_native_password BY ?",
+      [admin_pass],
+    )
+    session.run_sql(
+      f"ALTER USER `{escaped_user}`@'%' IDENTIFIED WITH mysql_native_password BY ?",
+      [admin_pass],
+    )
+    session.run_sql(
+      f"GRANT ALL PRIVILEGES ON *.* TO `{escaped_user}`@'%' WITH GRANT OPTION"
+    )
+    session.run_sql("FLUSH PRIVILEGES")
+    PY
+    timeout {{ mysqlsh_normalize_timeout_seconds | default(180) | int }} \
+      mysqlsh --no-wizard --py --file /tmp/refresh_cluster_admin.py
+    rm -f /tmp/refresh_cluster_admin.py
+  args:
+    executable: /bin/bash
+  delegate_to: "{{ item }}"
+  loop: "{{ groups['all'] }}"
+  changed_when: false
+  tags: ["add_instances"]
+
 - name: Add secondary instances to cluster
   ansible.builtin.shell: |
     set -euo pipefail
     cat >/tmp/add_instances.py <<'PY'
+    import os
+
     shell.options["useWizards"] = False
     shell.options["dba.restartWaitTimeout"] = {{ step_timeout_seconds | default(900) | int }}
     mysql_port = {{ mysql_port }}
-    root_password = {{ root_password | to_json }}
-    shell.connect({
-      "user": "root",
-      "host": {{ primary_ip | to_json }},
-      "port": mysql_port,
-      "password": root_password
-    })
+    cluster_admin_username = {{ cluster_admin_username | to_json }}
+    cluster_admin_password = {{ cluster_admin_password | to_json }}
+
+    def connect_local_root():
+      last_error = None
+      for socket_path in ("/var/run/mysqld/mysqld.sock", "/run/mysqld/mysqld.sock", "/var/lib/mysql/mysql.sock"):
+        if not os.path.exists(socket_path):
+          continue
+        try:
+          shell.connect({
+            "user": "root",
+            "scheme": "mysql",
+            "host": "localhost",
+            "socket": socket_path
+          })
+          return
+        except Exception as exc:
+          last_error = exc
+      if last_error is not None:
+        raise last_error
+      raise RuntimeError("unable to find a usable MySQL local socket for root")
+
+    connect_local_root()
     cluster = dba.get_cluster({{ cluster_name | to_json }})
     for host in {{ standby_ips | to_json }}:
-      endpoint = f"root@{host}:{mysql_port}"
+      endpoint = f"{cluster_admin_username}@{host}:{mysql_port}"
       try:
         cluster.add_instance(endpoint, {
-          "password": root_password,
+          "password": cluster_admin_password,
           "recoveryMethod": "clone",
           "localAddress": f"{host}:{mysql_port}",
           "waitRecovery": 1

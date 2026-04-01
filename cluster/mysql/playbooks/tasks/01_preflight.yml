@@ -7,18 +7,18 @@
   tags: ["preflight"]
 
 - name: Verify MySQL root connectivity
-  ansible.builtin.command:
-    argv:
-      - mysqladmin
-      - ping
-      - -h
-      - "{{ ansible_host }}"
-      - -P
-      - "{{ mysql_port | string }}"
-      - -u
-      - root
-  environment:
-    MYSQL_PWD: "{{ root_password }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    for sock in /var/run/mysqld/mysqld.sock /run/mysqld/mysqld.sock /var/lib/mysql/mysql.sock; do
+      if [ -S "$sock" ]; then
+        mysqladmin --socket="$sock" --user=root ping
+        exit 0
+      fi
+    done
+    echo "unable to find a MySQL local socket for root connectivity check" >&2
+    exit 1
+  args:
+    executable: /bin/bash
   register: mysql_ping
   changed_when: false
   failed_when: mysql_ping.rc != 0
