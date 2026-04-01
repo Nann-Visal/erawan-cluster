@@ -73,6 +73,12 @@ To roll back a MySQL job:
 - `new_user`, `new_user_password`, `new_db`: optional application database bootstrap.
 - `new_user_ssl_required`: controls whether the created MySQL user requires SSL.
 
+The generated MySQL instance config also points to MySQL's default auto-generated TLS files in the data directory:
+
+- `/var/lib/mysql/ca.pem`
+- `/var/lib/mysql/server-cert.pem`
+- `/var/lib/mysql/server-key.pem`
+
 ## Deployment flow
 
 1. Preflight checks confirm MySQL, MySQL Shell, and connectivity prerequisites are present.

@@ -22,6 +22,9 @@
       log_bin = mysql-bin
       binlog_format = ROW
       transaction_write_set_extraction = XXHASH64
+      ssl_ca = /var/lib/mysql/ca.pem
+      ssl_cert = /var/lib/mysql/server-cert.pem
+      ssl_key = /var/lib/mysql/server-key.pem
   register: mysql_cluster_config
   tags: ["configure_instances", "configure_mysql"]
 
