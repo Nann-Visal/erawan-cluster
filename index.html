@@ -8,6 +8,7 @@
     name="description"
     content="Single-page overview for the erawan-cluster API covering HAProxy, MySQL InnoDB Cluster, and PostgreSQL Patroni automation."
   />
+  <link rel="icon" type="image/png" href="doc/assets/erawan.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
@@ -130,6 +131,7 @@
       0% { transform: translateX(-220%) rotate(18deg); }
       50%, 100% { transform: translateX(520%) rotate(18deg); }
     }
+
   </style>
 </head>
 <body class="font-sans antialiased text-slate-900 transition-colors duration-300 dark:text-slate-100">
@@ -523,17 +525,7 @@ POST /cluster/pgsql/jobs/{jobID}/resume</pre>
       </section>
 
       <section id="developer" class="mt-24">
-        <div class="reveal grid gap-8 lg:grid-cols-[0.78fr_1.22fr] lg:items-center">
-          <div class="rounded-[34px] border border-slate-200 bg-white p-6 shadow-card transition-colors duration-300 dark:border-white/10 dark:bg-white/5">
-            <div class="overflow-hidden rounded-[28px] bg-slate-100 dark:bg-slate-900/60">
-              <img
-                src="doc/assets/photo_2026-04-01_17-33-45.jpg"
-                alt="Developer portrait"
-                class="h-full w-full object-cover"
-              />
-            </div>
-          </div>
-
+        <div class="reveal">
           <div class="rounded-[34px] border border-slate-200 bg-white p-8 shadow-card transition-colors duration-300 dark:border-white/10 dark:bg-white/5">
             <p class="text-xs font-medium uppercase tracking-[0.26em] text-sea">Developer</p>
             <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink dark:text-white sm:text-4xl">Contact the developer behind this project</h2>
@@ -661,6 +653,7 @@ POST /cluster/pgsql/jobs/{jobID}/resume</pre>
           stagger: 0.08,
           delay: 0.1
         });
+
       }
     })();
   </script>
