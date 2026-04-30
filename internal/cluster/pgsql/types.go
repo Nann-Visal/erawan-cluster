@@ -23,8 +23,6 @@ type DeployRequest struct {
 	NewUserPassword    string   `json:"new_user_password"`
 	NewUserSSLRequired *bool    `json:"new_user_ssl_required"`
 	NewDB              string   `json:"new_db"`
-	SSHUser            string   `json:"ssh_user"`
-	SSHPassword        string   `json:"ssh_password"`
 	SSHPort            int      `json:"ssh_port"`
 	PostgresPort       int      `json:"postgres_port"`
 	StepTimeoutSeconds int      `json:"step_timeout_seconds"`
@@ -34,7 +32,6 @@ type ResumeRequest struct {
 	PostgresPassword   string `json:"postgres_password"`
 	ReplicatorPassword string `json:"replicator_password"`
 	AdminPassword      string `json:"admin_password"`
-	SSHPassword        string `json:"ssh_password"`
 	NewUserPassword    string `json:"new_user_password"`
 }
 
@@ -69,6 +66,7 @@ type StoredSpec struct {
 	NewUserSSLRequired bool     `json:"new_user_ssl_required"`
 	NewDB              string   `json:"new_db"`
 	SSHUser            string   `json:"ssh_user"`
+	SSHPrivateKeyPath  string   `json:"ssh_private_key_path,omitempty"`
 	SSHPort            int      `json:"ssh_port"`
 	PostgresPort       int      `json:"postgres_port"`
 	StepTimeoutSeconds int      `json:"step_timeout_seconds"`
@@ -78,7 +76,6 @@ type SecretInput struct {
 	PostgresPassword   string
 	ReplicatorPassword string
 	AdminPassword      string
-	SSHPassword        string
 	NewUserPassword    string
 }
 

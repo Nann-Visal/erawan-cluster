@@ -3,6 +3,8 @@ package pgsql
 import (
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -16,21 +18,13 @@ var (
 func ValidateDeployRequest(req *DeployRequest) error {
 	req.ClusterName = strings.TrimSpace(req.ClusterName)
 	req.PrimaryIP = strings.TrimSpace(req.PrimaryIP)
-	req.SSHUser = strings.TrimSpace(req.SSHUser)
 	req.NewUser = strings.TrimSpace(req.NewUser)
 	req.NewDB = strings.TrimSpace(req.NewDB)
 	if req.ClusterName == "" {
 		req.ClusterName = "postgres-cluster"
 	}
-
-	if strings.TrimSpace(req.SSHPassword) == "" {
-		return fmt.Errorf("ssh_password is required")
-	}
 	if !namePattern.MatchString(req.ClusterName) {
 		return fmt.Errorf("cluster_name must match %s", namePattern.String())
-	}
-	if !userPattern.MatchString(req.SSHUser) {
-		return fmt.Errorf("ssh_user must match %s", userPattern.String())
 	}
 	if req.NewUser != "" && !userPattern.MatchString(req.NewUser) {
 		return fmt.Errorf("new_user must match %s", userPattern.String())
@@ -96,11 +90,51 @@ func ValidateResumeSecrets(req ResumeRequest) (SecretInput, error) {
 		PostgresPassword:   strings.TrimSpace(req.PostgresPassword),
 		ReplicatorPassword: strings.TrimSpace(req.ReplicatorPassword),
 		AdminPassword:      strings.TrimSpace(req.AdminPassword),
-		SSHPassword:        strings.TrimSpace(req.SSHPassword),
 		NewUserPassword:    strings.TrimSpace(req.NewUserPassword),
 	}
-	if secret.SSHPassword == "" {
-		return SecretInput{}, fmt.Errorf("ssh_password is required")
-	}
 	return secret, nil
+}
+
+func ValidateServiceSSHConfig(user, privateKeyPath string) (string, string, error) {
+	normalizedUser := strings.TrimSpace(user)
+	if !userPattern.MatchString(normalizedUser) {
+		return "", "", fmt.Errorf("ssh_user must match %s", userPattern.String())
+	}
+	normalizedKeyPath, err := normalizeSSHPrivateKeyPath(privateKeyPath)
+	if err != nil {
+		return "", "", fmt.Errorf("ssh_private_key_path: %w", err)
+	}
+	if normalizedKeyPath == "" {
+		return "", "", fmt.Errorf("ssh_private_key_path is required")
+	}
+	return normalizedUser, normalizedKeyPath, nil
+}
+
+func normalizeSSHPrivateKeyPath(raw string) (string, error) {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve user home: %w", err)
+		}
+		path = filepath.Join(home, path[2:])
+	}
+	if !filepath.IsAbs(path) {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return "", fmt.Errorf("resolve absolute path: %w", err)
+		}
+		path = absPath
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("stat %q: %w", path, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("%q must be a file", path)
+	}
+	return path, nil
 }

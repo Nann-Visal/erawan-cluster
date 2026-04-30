@@ -15,6 +15,13 @@ MySQL deployment note:
 - MySQL InnoDB Cluster can be deployed as a single primary node or as a primary with one or more secondary nodes.
 - MySQL Router bootstrap is optional and controlled by the API request.
 
+SSH access note:
+
+- Recommended default is SSH key authentication with a dedicated sudo-capable user.
+- Set `CLUSTER_SSH_USER` and `CLUSTER_SSH_PRIVATE_KEY_PATH` in `/etc/erawan-cluster/.env`.
+- Place the matching private key on the API host before restarting the service.
+- These guides assume the cloud image or template already trusts the corresponding public key on each DB node.
+
 All guides use the same production layout:
 
 ```text

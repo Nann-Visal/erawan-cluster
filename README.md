@@ -55,7 +55,7 @@ REST API for automated database cluster lifecycle management and HAProxy configu
 ### API Host
 - Go 1.22+
 - `ansible-playbook` installed
-- `sshpass` installed (required for SSH password authentication to target nodes)
+- SSH client available on the API host
 - SSH access to all target DB nodes
 - HAProxy installed (if using proxy features)
 - `sudo` permission for HAProxy reload command
@@ -88,13 +88,15 @@ cd erawan-cluster
 ### Install Dependencies
 ```bash
 sudo apt update
-sudo apt install -y golang-go ansible haproxy sshpass mysql-client
+sudo apt install -y golang-go ansible haproxy mysql-client openssh-client
 ```
 
 ### Build and Run
 ```bash
 make tidy
 make build
+export CLUSTER_SSH_USER=clusterops
+export CLUSTER_SSH_PRIVATE_KEY_PATH=/var/lib/erawan-cluster/keys/clusterops_ed25519
 make run
 ```
 
@@ -120,12 +122,21 @@ curl http://127.0.0.1:8080/health
 | `MYSQL_DEPLOY_PLAYBOOK` | `<project>/cluster/mysql/playbooks/deploy.yml` | MySQL deploy playbook path |
 | `MYSQL_ROLLBACK_PLAYBOOK` | `<project>/cluster/mysql/playbooks/rollback.yml` | MySQL rollback playbook path |
 | `PGSQL_DEPLOY_PLAYBOOK` | `<project>/cluster/pgsql/playbooks/deploy.yml` | PostgreSQL deploy playbook path |
+| `CLUSTER_SSH_USER` | empty | Required SSH login user for MySQL and PostgreSQL jobs |
+| `CLUSTER_SSH_PRIVATE_KEY_PATH` | empty | Required SSH private key path on the API host |
 | `MYSQL_ANSIBLE_DEBUG` | `false` | Stream live Ansible logs to journal |
 | `MYSQL_ANSIBLE_VERBOSITY` | `0` | Ansible verbosity level (1–4) |
 | `PGSQL_ANSIBLE_DEBUG` | `false` | Stream live PostgreSQL Ansible logs to journal |
 | `PGSQL_ANSIBLE_VERBOSITY` | `0` | PostgreSQL Ansible verbosity level (1–4) |
 
 ---
+
+## Recommended SSH Setup
+
+- Prefer a dedicated SSH user such as `clusterops` instead of logging in as `root`.
+- Grant that user passwordless `sudo` on the DB nodes so Ansible can `become: true`.
+- Put the matching private key on the API host and set `CLUSTER_SSH_USER` and `CLUSTER_SSH_PRIVATE_KEY_PATH` before starting the service.
+- This version is SSH-key only for cluster operations; request payloads no longer accept SSH credentials.
 
 ## Make Commands
 

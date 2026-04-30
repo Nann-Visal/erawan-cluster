@@ -41,6 +41,8 @@ func main() {
 	}
 
 	ansibleBin := env.GetString("ANSIBLE_PLAYBOOK_BIN", "ansible-playbook")
+	clusterSSHUser := env.GetString("CLUSTER_SSH_USER", "")
+	clusterSSHPrivateKeyPath := env.GetString("CLUSTER_SSH_PRIVATE_KEY_PATH", "")
 	deployPlaybook := env.GetString("MYSQL_DEPLOY_PLAYBOOK", filepath.Join(baseDir, "cluster/mysql/playbooks/deploy.yml"))
 	rollbackPlaybook := env.GetString("MYSQL_ROLLBACK_PLAYBOOK", filepath.Join(baseDir, "cluster/mysql/playbooks/rollback.yml"))
 	mysqlAnsibleDebug := env.GetBoolAny([]string{"CLUSTER_ANSIBLE_DEBUG", "MYSQL_ANSIBLE_DEBUG"}, false)
@@ -55,6 +57,11 @@ func main() {
 	runner := mysqlcluster.NewRunner(ansibleBin, deployPlaybook, rollbackPlaybook)
 	runner.SetDebug(mysqlAnsibleVerbosity, mysqlAnsibleDebug, mysqlStepOutputMaxChars)
 	mysqlSvc := mysqlcluster.NewService(store, runner)
+	if strings.TrimSpace(clusterSSHUser) != "" || strings.TrimSpace(clusterSSHPrivateKeyPath) != "" {
+		if err := mysqlSvc.SetSSHConfig(clusterSSHUser, clusterSSHPrivateKeyPath); err != nil {
+			log.Fatalf("init mysql ssh config: %v", err)
+		}
+	}
 
 	pgsqlDeployPlaybook := env.GetString("PGSQL_DEPLOY_PLAYBOOK", filepath.Join(baseDir, "cluster/pgsql/playbooks/deploy.yml"))
 	pgsqlAnsibleDebug := env.GetBoolAny([]string{"CLUSTER_ANSIBLE_DEBUG", "PGSQL_ANSIBLE_DEBUG"}, false)
@@ -69,6 +76,11 @@ func main() {
 	pgsqlRunner := pgsqlcluster.NewRunner(ansibleBin, pgsqlDeployPlaybook)
 	pgsqlRunner.SetDebug(pgsqlAnsibleVerbosity, pgsqlAnsibleDebug, pgsqlStepOutputMaxChars)
 	pgsqlSvc := pgsqlcluster.NewService(pgsqlStore, pgsqlRunner)
+	if strings.TrimSpace(clusterSSHUser) != "" || strings.TrimSpace(clusterSSHPrivateKeyPath) != "" {
+		if err := pgsqlSvc.SetSSHConfig(clusterSSHUser, clusterSSHPrivateKeyPath); err != nil {
+			log.Fatalf("init pgsql ssh config: %v", err)
+		}
+	}
 
 	app := &application{
 		config: config{

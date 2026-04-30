@@ -25,6 +25,7 @@ APP_ENV_DIR="/etc/erawan-cluster"
 APP_ENV_FILE="${APP_ENV_DIR}/.env"
 APP_STATE_DIR="/var/lib/erawan-cluster"
 JOBS_DIR="${APP_STATE_DIR}/cluster/jobs"
+KEYS_DIR="${APP_STATE_DIR}/keys"
 TENANTS_DIR="${APP_STATE_DIR}/haproxy/tenants"
 SUDOERS_FILE="/etc/sudoers.d/${APP_USER}-haproxy-reload"
 UNIT_FILE="/etc/systemd/system/${APP_NAME}.service"
@@ -33,7 +34,7 @@ HAPROXY_OVERRIDE_FILE="${HAPROXY_OVERRIDE_DIR}/override.conf"
 
 echo "==> Installing packages"
 apt update
-apt install -y haproxy ansible sshpass ca-certificates
+apt install -y haproxy ansible ca-certificates openssh-client
 
 echo "==> Validating sources"
 [[ -f "${BIN_SRC}" ]] || { echo "Missing binary: ${BIN_SRC}" >&2; exit 1; }
@@ -43,6 +44,7 @@ echo "==> Creating user and directories"
 id -u "${APP_USER}" >/dev/null 2>&1 || useradd -r -m -d "${APP_STATE_DIR}" -s /usr/sbin/nologin "${APP_USER}"
 install -d -o "${APP_USER}" -g "${APP_GROUP}" -m 0750 "${APP_STATE_DIR}"
 install -d -o "${APP_USER}" -g "${APP_GROUP}" -m 0750 "${JOBS_DIR}"
+install -d -o "${APP_USER}" -g "${APP_GROUP}" -m 0700 "${KEYS_DIR}"
 install -d -o "${APP_USER}" -g "${APP_GROUP}" -m 0755 "${TENANTS_DIR}"
 install -d -o root -g root -m 0755 "${APP_ROOT}"
 install -d -o root -g "${APP_GROUP}" -m 0750 "${APP_ENV_DIR}"
@@ -69,6 +71,8 @@ CLUSTER_STATE_DIR=${JOBS_DIR}
 ANSIBLE_PLAYBOOK_BIN=/usr/bin/ansible-playbook
 MYSQL_DEPLOY_PLAYBOOK=${APP_ROOT}/cluster/mysql/playbooks/deploy.yml
 MYSQL_ROLLBACK_PLAYBOOK=${APP_ROOT}/cluster/mysql/playbooks/rollback.yml
+CLUSTER_SSH_USER=
+CLUSTER_SSH_PRIVATE_KEY_PATH=
 
 CLUSTER_ANSIBLE_DEBUG=false
 CLUSTER_ANSIBLE_VERBOSITY=0
@@ -150,7 +154,7 @@ fi
 systemctl restart "${APP_NAME}"
 
 echo "==> Done"
-echo "Edit ${APP_ENV_FILE} and set API_KEY before exposing the API."
+echo "Edit ${APP_ENV_FILE} and set API_KEY, CLUSTER_SSH_USER, and CLUSTER_SSH_PRIVATE_KEY_PATH before running cluster jobs."
 echo "Check status:"
 echo "  systemctl status ${APP_NAME} --no-pager"
 echo "  systemctl status haproxy --no-pager"

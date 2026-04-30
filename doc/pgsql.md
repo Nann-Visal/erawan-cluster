@@ -7,6 +7,8 @@ This project now deploys PostgreSQL HA with `Patroni` and `etcd` instead of `rep
 - PostgreSQL is already installed on every node.
 - `patroni[etcd]` is already installed.
 - `etcd` is already installed.
+- The API host already has the matching private key for the cloud-template SSH user, such as `clusterops`.
+- That SSH user can run `sudo` without a password on every DB node.
 
 Supported topologies:
 
@@ -49,8 +51,6 @@ Use a PostgreSQL deploy body like this:
   "new_user_password": "AppUser#2026",
   "new_user_ssl_required": true,
   "new_db": "appdb",
-  "ssh_user": "root",
-  "ssh_password": "password",
   "ssh_port": 22,
   "postgres_port": 5432,
   "step_timeout_seconds": 900
@@ -64,8 +64,6 @@ HA example with standby nodes:
   "cluster_name": "postgres-cluster",
   "primary_ip": "10.0.0.1",
   "standby_ips": ["10.0.0.2", "10.0.0.3"],
-  "ssh_user": "root",
-  "ssh_password": "password",
   "ssh_port": 22,
   "postgres_port": 5432,
   "step_timeout_seconds": 900
@@ -76,7 +74,6 @@ To resume a failed job:
 
 ```json
 {
-  "ssh_password": "password",
   "new_user_password": "AppUser#2026"
 }
 ```
@@ -92,6 +89,7 @@ To resume a failed job:
 When `new_user_ssl_required` is omitted, it defaults to `true`.
 The generated Patroni PostgreSQL settings also enable server-side TLS using the default PostgreSQL install certificate paths above, so `hostssl` rules can be enforced.
 The automation internally generates and manages the PostgreSQL superuser, replication, and Patroni admin passwords unless you explicitly provide them.
+- SSH user and private key are configured once on the API host through `CLUSTER_SSH_USER` and `CLUSTER_SSH_PRIVATE_KEY_PATH`.
 
 ## Optional modes
 

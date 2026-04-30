@@ -90,7 +90,7 @@ func (r *Runner) run(ctx context.Context, cfg runConfig) (result StepResult) {
 	inventoryPath := filepath.Join(workspace, "inventory.yml")
 	varsPath := filepath.Join(workspace, "vars.json")
 
-	if err := os.WriteFile(inventoryPath, []byte(buildInventoryYAML(cfg.spec, cfg.secret)), 0o600); err != nil {
+	if err := os.WriteFile(inventoryPath, []byte(buildInventoryYAML(cfg.spec)), 0o600); err != nil {
 		result.Status = JobStatusFailed
 		result.Message = fmt.Sprintf("write inventory: %v", err)
 		return
@@ -193,7 +193,7 @@ func (r *Runner) run(ctx context.Context, cfg runConfig) (result StepResult) {
 	return
 }
 
-func buildInventoryYAML(spec StoredSpec, secret SecretInput) string {
+func buildInventoryYAML(spec StoredSpec) string {
 	var b strings.Builder
 	b.WriteString("all:\n")
 	b.WriteString("  hosts:\n")
@@ -201,9 +201,13 @@ func buildInventoryYAML(spec StoredSpec, secret SecretInput) string {
 		b.WriteString("    " + name + ":\n")
 		b.WriteString("      ansible_host: " + strconv.Quote(ip) + "\n")
 		b.WriteString("      ansible_user: " + strconv.Quote(spec.SSHUser) + "\n")
-		b.WriteString("      ansible_password: " + strconv.Quote(secret.SSHPassword) + "\n")
 		b.WriteString(fmt.Sprintf("      ansible_port: %d\n", spec.SSHPort))
 		b.WriteString("      ansible_become: true\n")
+		b.WriteString("      ansible_become_method: sudo\n")
+		b.WriteString("      ansible_become_user: root\n")
+		b.WriteString("      ansible_become_flags: " + strconv.Quote("-n") + "\n")
+		b.WriteString("      ansible_ssh_private_key_file: " + strconv.Quote(spec.SSHPrivateKeyPath) + "\n")
+		b.WriteString("      ansible_ssh_common_args: " + strconv.Quote("-o IdentitiesOnly=yes") + "\n")
 	}
 
 	writeHost("primary", spec.PrimaryIP)

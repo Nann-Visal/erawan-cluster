@@ -9,6 +9,8 @@ This project deploys MySQL HA with MySQL InnoDB Cluster, MySQL Shell, and option
 - Local MySQL administration as OS `root` works through a Unix socket on every target node.
 - MySQL nodes can reach each other on the MySQL port.
 - The API host can SSH to every target node.
+- The API host already has the matching private key for the cloud-template SSH user, such as `clusterops`.
+- That SSH user can run `sudo` without a password on every DB node.
 
 Supported topologies:
 
@@ -33,8 +35,6 @@ Use a MySQL deploy body like this:
   "new_db": "appdb",
   "assume_prepared": false,
   "bootstrap_router": true,
-  "ssh_user": "root",
-  "ssh_password": "password",
   "ssh_port": 22,
   "mysql_port": 3306,
   "step_timeout_seconds": 900
@@ -45,7 +45,6 @@ To resume a failed job:
 
 ```json
 {
-  "ssh_password": "password",
   "new_user_password": "AppUser#2026"
 }
 ```
@@ -53,9 +52,7 @@ To resume a failed job:
 To roll back a MySQL job:
 
 ```json
-{
-  "ssh_password": "password"
-}
+{}
 ```
 
 ## Field behavior
@@ -64,9 +61,12 @@ To roll back a MySQL job:
 - `standby_ips`: optional list of replica nodes to add after cluster creation.
 - `cluster_admin_username`: optional override for the internally managed cluster admin account. Defaults to `clusteradmin`.
 - `bootstrap_router`: when `true`, bootstraps MySQL Router on all DB nodes.
+- `ssh_port`: SSH port for the target nodes. Defaults to `22`.
 - `assume_prepared`: when `true`, skips preflight and instance-configuration steps.
 - `new_user`, `new_user_password`, `new_db`: optional application database bootstrap.
 - `new_user_ssl_required`: controls whether the created MySQL user requires SSL.
+
+SSH user and private key are configured once on the API host through `CLUSTER_SSH_USER` and `CLUSTER_SSH_PRIVATE_KEY_PATH`.
 
 The generated MySQL instance config also points to MySQL's default auto-generated TLS files in the data directory:
 

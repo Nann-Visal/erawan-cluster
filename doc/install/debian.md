@@ -40,10 +40,20 @@ CLUSTER_STATE_DIR=/var/lib/erawan-cluster/cluster/jobs
 MYSQL_DEPLOY_PLAYBOOK=/opt/erawan-cluster/cluster/mysql/playbooks/deploy.yml
 MYSQL_ROLLBACK_PLAYBOOK=/opt/erawan-cluster/cluster/mysql/playbooks/rollback.yml
 PGSQL_DEPLOY_PLAYBOOK=/opt/erawan-cluster/cluster/pgsql/playbooks/deploy.yml
+CLUSTER_SSH_USER=clusterops
+CLUSTER_SSH_PRIVATE_KEY_PATH=/var/lib/erawan-cluster/keys/clusterops_ed25519
 CLUSTER_ANSIBLE_DEBUG=false
 CLUSTER_ANSIBLE_VERBOSITY=0
 CLUSTER_STEP_OUTPUT_MAX_CHARS=8000
 ```
+
+Recommended SSH preparation:
+```bash
+sudo install -d -o erawan -g erawan -m 0700 /var/lib/erawan-cluster/keys
+sudo install -o erawan -g erawan -m 0600 ./clusterops_ed25519 /var/lib/erawan-cluster/keys/clusterops_ed25519
+```
+
+Ensure the matching public key is already present for `clusterops` on every DB node and that `clusterops` can run `sudo` without a password.
 
 ## 5) Reload services
 ```bash

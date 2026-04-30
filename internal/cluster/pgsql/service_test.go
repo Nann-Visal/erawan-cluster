@@ -2,16 +2,16 @@ package pgsql
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestValidateDeployRequestAllowsPrimaryOnlyTopology(t *testing.T) {
 	req := DeployRequest{
-		PrimaryIP:   "10.0.0.1",
-		StandbyIPs:  []string{},
-		SSHUser:     "root",
-		SSHPassword: "password",
+		PrimaryIP:  "10.0.0.1",
+		StandbyIPs: []string{},
 	}
 
 	if err := ValidateDeployRequest(&req); err != nil {
@@ -45,6 +45,9 @@ func TestDeploySchedulesBackgroundExecution(t *testing.T) {
 	}
 
 	svc := NewService(store, nil)
+	if err := svc.SetSSHConfig("clusterops", tempPrivateKeyPath(t)); err != nil {
+		t.Fatalf("set ssh config: %v", err)
+	}
 	launched := false
 	svc.start = func(fn func()) {
 		launched = true
@@ -53,9 +56,6 @@ func TestDeploySchedulesBackgroundExecution(t *testing.T) {
 	job, err := svc.Deploy(context.Background(), DeployRequest{
 		ClusterName:        "postgres-cluster",
 		PrimaryIP:          "10.0.0.1",
-		SSHUser:            "root",
-		SSHPassword:        "password",
-		SSHPort:            22,
 		StepTimeoutSeconds: 30,
 	})
 	if err != nil {
@@ -90,6 +90,9 @@ func TestResumeSchedulesBackgroundExecution(t *testing.T) {
 	}
 
 	svc := NewService(store, nil)
+	if err := svc.SetSSHConfig("clusterops", tempPrivateKeyPath(t)); err != nil {
+		t.Fatalf("set ssh config: %v", err)
+	}
 	launched := false
 	svc.start = func(fn func()) {
 		launched = true
@@ -104,7 +107,8 @@ func TestResumeSchedulesBackgroundExecution(t *testing.T) {
 		Request: StoredSpec{
 			ClusterName:        "postgres-cluster",
 			PrimaryIP:          "10.0.0.1",
-			SSHUser:            "root",
+			SSHUser:            "clusterops",
+			SSHPrivateKeyPath:  tempPrivateKeyPath(t),
 			SSHPort:            22,
 			PostgresPort:       5432,
 			StepTimeoutSeconds: 30,
@@ -114,9 +118,7 @@ func TestResumeSchedulesBackgroundExecution(t *testing.T) {
 		t.Fatalf("save job: %v", err)
 	}
 
-	resumed, err := svc.Resume(context.Background(), job.ID, ResumeRequest{
-		SSHPassword: "password",
-	})
+	resumed, err := svc.Resume(context.Background(), job.ID, ResumeRequest{})
 	if err != nil {
 		t.Fatalf("resume: %v", err)
 	}
@@ -126,4 +128,30 @@ func TestResumeSchedulesBackgroundExecution(t *testing.T) {
 	if resumed.Status != JobStatusRunning {
 		t.Fatalf("expected running job status, got %q", resumed.Status)
 	}
+}
+
+func TestBuildInventoryYAMLUsesSSHKeyWhenProvided(t *testing.T) {
+	inventory := buildInventoryYAML(StoredSpec{
+		PrimaryIP:         "10.0.0.1",
+		SSHUser:           "clusterops",
+		SSHPrivateKeyPath: "/tmp/test-key",
+		SSHPort:           22,
+	})
+
+	if strings.Contains(inventory, "ansible_password") {
+		t.Fatalf("expected ssh key auth to omit ansible_password, inventory=%s", inventory)
+	}
+	if !strings.Contains(inventory, "ansible_ssh_private_key_file") {
+		t.Fatalf("expected ssh key auth to include ansible_ssh_private_key_file, inventory=%s", inventory)
+	}
+}
+
+func tempPrivateKeyPath(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := dir + "/id_ed25519"
+	if err := os.WriteFile(path, []byte("test-private-key"), 0o600); err != nil {
+		t.Fatalf("write temp private key: %v", err)
+	}
+	return path
 }

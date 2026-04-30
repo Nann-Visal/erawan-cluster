@@ -3,6 +3,8 @@ package mysql
 import (
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -17,7 +19,6 @@ func ValidateDeployRequest(req *DeployRequest) error {
 	req.ClusterAdminUsername = strings.TrimSpace(req.ClusterAdminUsername)
 	req.ClusterName = strings.TrimSpace(req.ClusterName)
 	req.PrimaryIP = strings.TrimSpace(req.PrimaryIP)
-	req.SSHUser = strings.TrimSpace(req.SSHUser)
 	req.NewUser = strings.TrimSpace(req.NewUser)
 	req.NewDB = strings.TrimSpace(req.NewDB)
 	if req.ClusterName == "" {
@@ -30,18 +31,11 @@ func ValidateDeployRequest(req *DeployRequest) error {
 		req.StandbyIPs = req.SecondaryIPs
 	}
 
-	if strings.TrimSpace(req.SSHPassword) == "" {
-		return fmt.Errorf("ssh_password is required")
-	}
-
 	if !userPattern.MatchString(req.ClusterAdminUsername) {
 		return fmt.Errorf("cluster_admin_username must match %s", userPattern.String())
 	}
 	if !namePattern.MatchString(req.ClusterName) {
 		return fmt.Errorf("cluster_name must match %s", namePattern.String())
-	}
-	if !userPattern.MatchString(req.SSHUser) {
-		return fmt.Errorf("ssh_user must match %s", userPattern.String())
 	}
 	if req.NewUser != "" && !userPattern.MatchString(req.NewUser) {
 		return fmt.Errorf("new_user must match %s", userPattern.String())
@@ -79,7 +73,10 @@ func ValidateDeployRequest(req *DeployRequest) error {
 		req.StandbyIPs[i] = ip
 	}
 
-	if req.SSHPort <= 0 || req.SSHPort > 65535 {
+	if req.SSHPort == 0 {
+		req.SSHPort = 22
+	}
+	if req.SSHPort < 1 || req.SSHPort > 65535 {
 		return fmt.Errorf("ssh_port must be between 1 and 65535")
 	}
 	if req.MySQLPort == 0 {
@@ -102,11 +99,7 @@ func ValidateResumeSecrets(req ResumeRequest) (SecretInput, error) {
 	secret := SecretInput{
 		RootPassword:         strings.TrimSpace(req.RootPassword),
 		ClusterAdminPassword: strings.TrimSpace(req.ClusterAdminPassword),
-		SSHPassword:          strings.TrimSpace(req.SSHPassword),
 		NewUserPassword:      strings.TrimSpace(req.NewUserPassword),
-	}
-	if secret.SSHPassword == "" {
-		return SecretInput{}, fmt.Errorf("ssh_password is required")
 	}
 	return secret, nil
 }
@@ -115,10 +108,50 @@ func ValidateRollbackSecrets(req RollbackRequest) (SecretInput, error) {
 	secret := SecretInput{
 		RootPassword:         strings.TrimSpace(req.RootPassword),
 		ClusterAdminPassword: strings.TrimSpace(req.ClusterAdminPassword),
-		SSHPassword:          strings.TrimSpace(req.SSHPassword),
-	}
-	if secret.SSHPassword == "" {
-		return SecretInput{}, fmt.Errorf("ssh_password is required")
 	}
 	return secret, nil
+}
+
+func ValidateServiceSSHConfig(user, privateKeyPath string) (string, string, error) {
+	normalizedUser := strings.TrimSpace(user)
+	if !userPattern.MatchString(normalizedUser) {
+		return "", "", fmt.Errorf("ssh_user must match %s", userPattern.String())
+	}
+	normalizedKeyPath, err := normalizeSSHPrivateKeyPath(privateKeyPath)
+	if err != nil {
+		return "", "", fmt.Errorf("ssh_private_key_path: %w", err)
+	}
+	if normalizedKeyPath == "" {
+		return "", "", fmt.Errorf("ssh_private_key_path is required")
+	}
+	return normalizedUser, normalizedKeyPath, nil
+}
+
+func normalizeSSHPrivateKeyPath(raw string) (string, error) {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve user home: %w", err)
+		}
+		path = filepath.Join(home, path[2:])
+	}
+	if !filepath.IsAbs(path) {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return "", fmt.Errorf("resolve absolute path: %w", err)
+		}
+		path = absPath
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("stat %q: %w", path, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("%q must be a file", path)
+	}
+	return path, nil
 }

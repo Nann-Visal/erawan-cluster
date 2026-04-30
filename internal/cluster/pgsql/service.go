@@ -12,6 +12,8 @@ type Service struct {
 	store         *Store
 	runner        *Runner
 	steps         []step
+	sshUser       string
+	sshKeyPath    string
 	start         func(func())
 	runDeployStep func(context.Context, runConfig) StepResult
 }
@@ -43,9 +45,22 @@ func NewService(store *Store, runner *Runner) *Service {
 	return svc
 }
 
+func (s *Service) SetSSHConfig(user, privateKeyPath string) error {
+	normalizedUser, normalizedKeyPath, err := ValidateServiceSSHConfig(user, privateKeyPath)
+	if err != nil {
+		return err
+	}
+	s.sshUser = normalizedUser
+	s.sshKeyPath = normalizedKeyPath
+	return nil
+}
+
 func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 	_ = ctx
 	if err := ValidateDeployRequest(&req); err != nil {
+		return nil, err
+	}
+	if err := s.hydrateStoredSSHConfig(nil); err != nil {
 		return nil, err
 	}
 
@@ -62,7 +77,8 @@ func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 			NewUser:            req.NewUser,
 			NewUserSSLRequired: req.NewUserSSLRequiredEnabled(),
 			NewDB:              req.NewDB,
-			SSHUser:            req.SSHUser,
+			SSHUser:            s.sshUser,
+			SSHPrivateKeyPath:  s.sshKeyPath,
 			SSHPort:            req.SSHPort,
 			PostgresPort:       req.PostgresPort,
 			StepTimeoutSeconds: req.StepTimeoutSeconds,
@@ -78,7 +94,6 @@ func (s *Service) Deploy(ctx context.Context, req DeployRequest) (*Job, error) {
 		PostgresPassword:   stringOrGenerated(req.PostgresPassword),
 		ReplicatorPassword: stringOrGenerated(req.ReplicatorPassword),
 		AdminPassword:      stringOrGenerated(req.AdminPassword),
-		SSHPassword:        req.SSHPassword,
 		NewUserPassword:    req.NewUserPassword,
 	}
 	if err := s.store.SaveSecret(job.ID, StoredSecret{
@@ -108,6 +123,9 @@ func (s *Service) Resume(ctx context.Context, jobID string, req ResumeRequest) (
 
 	job, err := s.store.Load(jobID)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.hydrateStoredSSHConfig(job); err != nil {
 		return nil, err
 	}
 	if job.Status == JobStatusCompleted {
@@ -180,6 +198,21 @@ func (s *Service) Get(jobID string) (*Job, error) {
 
 func (s *Service) List(limit int) ([]Job, error) {
 	return s.store.List(limit)
+}
+
+func (s *Service) hydrateStoredSSHConfig(job *Job) error {
+	if s.sshUser == "" || s.sshKeyPath == "" {
+		return fmt.Errorf("ssh service configuration is incomplete")
+	}
+	if job != nil {
+		if job.Request.SSHUser == "" {
+			job.Request.SSHUser = s.sshUser
+		}
+		if job.Request.SSHPrivateKeyPath == "" {
+			job.Request.SSHPrivateKeyPath = s.sshKeyPath
+		}
+	}
+	return nil
 }
 
 func (s *Service) executeFrom(ctx context.Context, job *Job, startIndex int, secret SecretInput) error {

@@ -27,8 +27,6 @@ type DeployRequest struct {
 	NewDB                string   `json:"new_db"`
 	AssumePrepared       bool     `json:"assume_prepared"`
 	BootstrapRouter      *bool    `json:"bootstrap_router"`
-	SSHUser              string   `json:"ssh_user"`
-	SSHPassword          string   `json:"ssh_password"`
 	SSHPort              int      `json:"ssh_port"`
 	MySQLPort            int      `json:"mysql_port"`
 	StepTimeoutSeconds   int      `json:"step_timeout_seconds"`
@@ -44,14 +42,12 @@ func (r DeployRequest) BootstrapRouterEnabled() bool {
 type ResumeRequest struct {
 	RootPassword         string `json:"root_password"`
 	ClusterAdminPassword string `json:"cluster_admin_password"`
-	SSHPassword          string `json:"ssh_password"`
 	NewUserPassword      string `json:"new_user_password"`
 }
 
 type RollbackRequest struct {
 	RootPassword         string `json:"root_password"`
 	ClusterAdminPassword string `json:"cluster_admin_password"`
-	SSHPassword          string `json:"ssh_password"`
 }
 
 type StepResult struct {
@@ -91,6 +87,7 @@ type StoredSpec struct {
 	AssumePrepared       bool     `json:"assume_prepared"`
 	BootstrapRouter      bool     `json:"bootstrap_router"`
 	SSHUser              string   `json:"ssh_user"`
+	SSHPrivateKeyPath    string   `json:"ssh_private_key_path,omitempty"`
 	SSHPort              int      `json:"ssh_port"`
 	MySQLPort            int      `json:"mysql_port"`
 	StepTimeoutSeconds   int      `json:"step_timeout_seconds"`
@@ -99,7 +96,6 @@ type StoredSpec struct {
 type SecretInput struct {
 	RootPassword         string
 	ClusterAdminPassword string
-	SSHPassword          string
 	NewUserPassword      string
 }
 
