@@ -79,33 +79,126 @@ REST API for automated database cluster lifecycle management and HAProxy configu
 
 ## Quick Start
 
-### Clone
-```bash
-git clone <your-repo-url> erawan-cluster
-cd erawan-cluster
-```
+This is the recommended setup for a fresh Ubuntu 24.04 proxy node that will run:
 
-### Install Dependencies
+- the `erawan-cluster` API
+- Ansible playbooks
+- optional HAProxy tenant configs
+
+### 1. Prepare the proxy node
 ```bash
 sudo apt update
-sudo apt install -y golang-go ansible haproxy mysql-client openssh-client
+sudo apt install -y git curl make golang-go
 ```
 
-### Build and Run
+### 2. Clone and build
 ```bash
+git clone https://github.com/Zii-Factorial/erawan-cluster.git
+cd erawan-cluster
 make tidy
 make build
-export CLUSTER_SSH_USER=clusterops
-export CLUSTER_SSH_PRIVATE_KEY_PATH=/var/lib/erawan-cluster/keys/clusterops_ed25519
-make run
 ```
 
-Default listen address: `0.0.0.0:8080`
-
-### Health Check
+### 3. Run the Ubuntu installer
 ```bash
+sudo bash scripts/install-ubuntu.sh
+```
+
+This installs:
+
+- `haproxy`
+- `ansible`
+- `openssh-client`
+- the API binary at `/usr/local/bin/erawan-cluster`
+- playbooks at `/opt/erawan-cluster/cluster`
+- the systemd service `erawan-cluster`
+
+### 4. Generate the SSH key on the proxy node
+
+Generate a dedicated RSA 4096 key for the cluster automation user:
+
+```bash
+sudo install -d -o erawan -g erawan -m 0700 /var/lib/erawan-cluster/keys
+sudo -u erawan ssh-keygen -t rsa -b 4096 -N '' -C 'clusterops@proxy-node' -f /var/lib/erawan-cluster/keys/clusterops_rsa
+```
+
+Show the public key:
+
+```bash
+sudo cat /var/lib/erawan-cluster/keys/clusterops_rsa.pub
+```
+
+### 5. Trust the public key on every DB node
+
+On each DB node, make sure the SSH user exists:
+
+```bash
+sudo useradd -m -s /bin/bash clusterops || true
+sudo install -d -o clusterops -g clusterops -m 700 /home/clusterops/.ssh
+```
+
+Append the proxy node public key:
+
+```bash
+echo 'PASTE_PROXY_PUBLIC_KEY_HERE' | sudo tee -a /home/clusterops/.ssh/authorized_keys
+sudo chown clusterops:clusterops /home/clusterops/.ssh/authorized_keys
+sudo chmod 600 /home/clusterops/.ssh/authorized_keys
+```
+
+Allow passwordless sudo for automation:
+
+```bash
+echo 'clusterops ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/clusterops
+sudo chmod 440 /etc/sudoers.d/clusterops
+```
+
+### 6. Configure the API service
+
+Edit the env file:
+
+```bash
+sudo nano /etc/erawan-cluster/.env
+```
+
+Set at minimum:
+
+```env
+ENV=prod
+API_HOST=127.0.0.1
+API_PORT=8080
+API_KEY=CHANGE_THIS_TO_A_LONG_RANDOM_SECRET
+TENANTS_DIR=/var/lib/erawan-cluster/haproxy/tenants
+HAPROXY_RELOAD_CMD=sudo /bin/systemctl reload haproxy
+CLUSTER_STATE_DIR=/var/lib/erawan-cluster/cluster/jobs
+MYSQL_DEPLOY_PLAYBOOK=/opt/erawan-cluster/cluster/mysql/playbooks/deploy.yml
+MYSQL_ROLLBACK_PLAYBOOK=/opt/erawan-cluster/cluster/mysql/playbooks/rollback.yml
+PGSQL_DEPLOY_PLAYBOOK=/opt/erawan-cluster/cluster/pgsql/playbooks/deploy.yml
+CLUSTER_SSH_USER=clusterops
+CLUSTER_SSH_PRIVATE_KEY_PATH=/var/lib/erawan-cluster/keys/clusterops_rsa
+```
+
+### 7. Restart and verify the proxy node
+```bash
+sudo systemctl daemon-reload
+sudo systemctl reload haproxy || sudo systemctl start haproxy
+sudo systemctl restart erawan-cluster
+sudo systemctl status erawan-cluster --no-pager
+sudo systemctl status haproxy --no-pager
 curl http://127.0.0.1:8080/health
 ```
+
+### 8. Test SSH from the proxy node to a DB node
+```bash
+sudo -u erawan ssh -i /var/lib/erawan-cluster/keys/clusterops_rsa clusterops@<db-node-ip> 'whoami'
+sudo -u erawan ssh -i /var/lib/erawan-cluster/keys/clusterops_rsa clusterops@<db-node-ip> 'sudo -n whoami'
+```
+
+Expected results:
+
+- first command returns `clusterops`
+- second command returns `root`
+
+After that, the proxy node is ready to call the MySQL and PostgreSQL cluster APIs.
 
 ---
 
@@ -135,7 +228,8 @@ curl http://127.0.0.1:8080/health
 
 - Prefer a dedicated SSH user such as `clusterops` instead of logging in as `root`.
 - Grant that user passwordless `sudo` on the DB nodes so Ansible can `become: true`.
-- Put the matching private key on the API host and set `CLUSTER_SSH_USER` and `CLUSTER_SSH_PRIVATE_KEY_PATH` before starting the service.
+- Generate or place the matching private key on the API host and set `CLUSTER_SSH_USER` and `CLUSTER_SSH_PRIVATE_KEY_PATH` before starting the service.
+- If you generate the key on the proxy node, copy the `.pub` key to every DB node or bake it into your cloud template.
 - This version is SSH-key only for cluster operations; request payloads no longer accept SSH credentials.
 
 ## Make Commands
